@@ -1,0 +1,540 @@
+diff --git a/GameOS/gameos/utils/file_utils.cpp b/GameOS/gameos/utils/file_utils.cpp
+index 5d2875b..3a89792 100644
+--- a/GameOS/gameos/utils/file_utils.cpp
++++ b/GameOS/gameos/utils/file_utils.cpp
+@@ -24,8 +24,12 @@ uint64_t get_file_mod_time_ms(const char* fname)
+ #else
+     struct stat fi = {0};
+     stat(fname, &fi);
++#ifdef __APPLE__
++	return fi.st_mtimespec.tv_sec * 1e+3 + fi.st_mtimespec.tv_nsec / 1e+6;
++#else
+ 	return fi.st_mtim.tv_sec * 1e+3 + fi.st_mtim.tv_nsec / 1e+6;
+ #endif
++#endif
+ 
+ }
+ 
+@@ -41,4 +45,3 @@ std::string get_path(const char* fname)
+ 
+ }
+ 
+-
+diff --git a/GameOS/gameos/utils/string_utils.cpp b/GameOS/gameos/utils/string_utils.cpp
+index e7cabad..9228421 100644
+--- a/GameOS/gameos/utils/string_utils.cpp
++++ b/GameOS/gameos/utils/string_utils.cpp
+@@ -2,7 +2,7 @@
+ #define STRING_UTILS_H
+ 
+ #include <memory.h>
+-#include <malloc.h>
++#include <stdlib.h>
+ #include <string.h>
+ #include <ctype.h> // for tolower
+ #include <cassert>
+diff --git a/GameOS/include/gameos.hpp b/GameOS/include/gameos.hpp
+index 4d6f561..61b430f 100644
+--- a/GameOS/include/gameos.hpp
++++ b/GameOS/include/gameos.hpp
+@@ -40,11 +40,21 @@
+ #include<string.h> // memcmp
+ #include "platform_windows.h"
+ 
++#if defined(__aarch64__) || defined(__arm64__)
++#include <time.h>
++#endif
++
+ static __inline__ unsigned long long rdtsc(void)
+ {
++#if defined(__aarch64__) || defined(__arm64__)
++    struct timespec ts;
++    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
++    return (unsigned long long)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
++#else
+     unsigned long x;
+     __asm__ volatile (".byte 0x0f, 0x31" : "=A" (x));
+     return x;
++#endif
+ }
+ // or just use clock_gettime(CLOCK_MONOTONIC_RAW);
+ // or 
+@@ -3363,4 +3373,3 @@ public:
+ };
+ 
+ #endif // __cplusplus
+-
+diff --git a/GameOS/src/platform_winbase.cpp b/GameOS/src/platform_winbase.cpp
+index 99731ac..c9ece91 100644
+--- a/GameOS/src/platform_winbase.cpp
++++ b/GameOS/src/platform_winbase.cpp
+@@ -21,6 +21,12 @@
+ #include"platform_windows.h"
+ #include"platform_str.h"
+ 
++#ifdef __APPLE__
++#define st_atim st_atimespec
++#define st_mtim st_mtimespec
++#define st_ctim st_ctimespec
++#endif
++
+ static int gGetLastError = 0;
+ 
+ DWORD GetTimeZoneInformation(LPTIME_ZONE_INFORMATION tzi)
+@@ -397,4 +403,3 @@ BOOL WINAPI FindClose(HANDLE hFindFile)
+ #endif // PLATFORM_WINDOWS
+ 
+ 
+-
+diff --git a/code/componentlistbox.cpp b/code/componentlistbox.cpp
+index 692eadc..53e0cda 100644
+--- a/code/componentlistbox.cpp
++++ b/code/componentlistbox.cpp
+@@ -10,7 +10,7 @@ ComponentListBox.cpp			: Implementation of the ComponentListBox component.
+ #include"logisticsvariant.h"
+ #include"logisticscomponent.h"
+ #include "../resource.h"
+-#include"malloc.h"
++#include<stdlib.h>
+ #include"mclib.h"
+ #include"logisticsdata.h"
+ #include"mechlabscreen.h"
+diff --git a/code/controlgui.cpp b/code/controlgui.cpp
+index 01fc0bd..18394d5 100644
+--- a/code/controlgui.cpp
++++ b/code/controlgui.cpp
+@@ -34,7 +34,7 @@ controlGui.cpp			: Implementation of the controlGui component.
+ #include"txmmgr.h"
+ 
+ #include "../resource.h"
+-#include"malloc.h"
++#include<stdlib.h>
+ 
+ #include"chatwindow.h"
+ 
+diff --git a/code/logisticsdata.cpp b/code/logisticsdata.cpp
+index 7cf4adf..bde81ce 100644
+--- a/code/logisticsdata.cpp
++++ b/code/logisticsdata.cpp
+@@ -13,7 +13,7 @@ LogisticsData.cpp			: Implementation of the LogisticsData component.
+ #include"paths.h"
+ #include"warrior.h"
+ #include"../resource.h"
+-#include"malloc.h"
++#include<stdlib.h>
+ #include"team.h"
+ #include"mech.h"
+ #include"logisticsmissioninfo.h"
+diff --git a/code/logisticsdialog.cpp b/code/logisticsdialog.cpp
+index c077e50..ef6e4cc 100644
+--- a/code/logisticsdialog.cpp
++++ b/code/logisticsdialog.cpp
+@@ -14,7 +14,7 @@ LogisticsDialog.cpp			: Implementation of the LogisticsDialog component.
+ #include "../resource.h"
+ #include"aedit.h"
+ #include"logisticsdata.h"
+-#include<malloc.h>
++#include<stdlib.h>
+ #include"missionbriefingscreen.h"
+ #include"sounds.h"
+ #include"gamesound.h"
+diff --git a/code/mechlabscreen.cpp b/code/mechlabscreen.cpp
+index b7a42c7..8223e16 100644
+--- a/code/mechlabscreen.cpp
++++ b/code/mechlabscreen.cpp
+@@ -14,7 +14,7 @@ MechLabScreen.cpp			: Implementation of the MechLabScreen component.
+ #include"platform_windows.h"
+ #include "../resource.h"
+ #include"logisticsdialog.h"
+-#include<malloc.h>
++#include<stdlib.h>
+ #include"gamesound.h"
+ #include"chatwindow.h"
+ #include"multplyr.h"
+diff --git a/code/pilotreviewarea.cpp b/code/pilotreviewarea.cpp
+index af972ec..e48dbde 100644
+--- a/code/pilotreviewarea.cpp
++++ b/code/pilotreviewarea.cpp
+@@ -13,7 +13,7 @@ SalvageMechArea.cpp			: Implementation of the SalvageMechArea component.
+ #include"logisticsdata.h"
+ #include "../resource.h"
+ #include"mech.h"
+-#include<malloc.h>
++#include<stdlib.h>
+ #include"mechicon.h"
+ #include"platform_windows.h"
+ #include"gamesound.h"
+diff --git a/code/salvagemecharea.cpp b/code/salvagemecharea.cpp
+index be22f30..05f5596 100644
+--- a/code/salvagemecharea.cpp
++++ b/code/salvagemecharea.cpp
+@@ -15,7 +15,7 @@ SalvageMechArea.cpp			: Implementation of the SalvageMechArea component.
+ #include"logisticsdata.h"
+ #include "../resource.h"
+ #include"gamesound.h"
+-#include<malloc.h>
++#include<stdlib.h>
+ 
+ aAnimButton* SalvageListItem::templateCheckButton = NULL;
+ 
+diff --git a/mclib/color.cpp b/mclib/color.cpp
+index ba7c974..ee29631 100644
+--- a/mclib/color.cpp
++++ b/mclib/color.cpp
+@@ -73,7 +73,7 @@ void initColorTables (void)
+ 			sprintf(colorBlock,"Color%d",j);
+ 
+             // sebi
+-            long unsigned int tmp;
++            uint64_t tmp;
+ 			result = colorFile.readIdULong(colorBlock, tmp);
+             table[j] = (DWORD)tmp;
+ 			gosASSERT(result == NO_ERR);
+diff --git a/mclib/echarstring.cpp b/mclib/echarstring.cpp
+index 5308626..46a1cef 100644
+--- a/mclib/echarstring.cpp
++++ b/mclib/echarstring.cpp
+@@ -40,7 +40,7 @@
+ #include<gameos.hpp>
+ 
+ #ifdef UNICODE
+-#include<malloc.h>
++#include<stdlib.h>
+ #include<tchar.h>
+ #endif
+ 
+diff --git a/mclib/estring.cpp b/mclib/estring.cpp
+index 60cb7e6..0ffaa12 100644
+--- a/mclib/estring.cpp
++++ b/mclib/estring.cpp
+@@ -12,7 +12,7 @@
+ 
+ #ifdef UNICODE
+ #define K_UNICODE
+-#include<malloc.h>
++#include<stdlib.h>
+ #include<tchar.h>
+ #endif
+ 
+diff --git a/mclib/ewcharstring.cpp b/mclib/ewcharstring.cpp
+index 6ceb430..45f5366 100644
+--- a/mclib/ewcharstring.cpp
++++ b/mclib/ewcharstring.cpp
+@@ -36,7 +36,7 @@
+ #include<gameos.hpp>
+ 
+ #ifdef UNICODE
+-#include<malloc.h>
++#include<stdlib.h>
+ #include"platform_tchar.h"
+ #endif
+ 
+diff --git a/mclib/gamelog.cpp b/mclib/gamelog.cpp
+index 7d162c6..315efcc 100644
+--- a/mclib/gamelog.cpp
++++ b/mclib/gamelog.cpp
+@@ -20,7 +20,7 @@
+ #include<heap.h>
+ #endif
+ 
+-#include<malloc.h>
++#include<stdlib.h>
+ #include<stdlib.h>
+ #include<stdio.h>
+ #include"platform_str.h"
+diff --git a/mclib/heap.cpp b/mclib/heap.cpp
+index a323851..d5cf714 100644
+--- a/mclib/heap.cpp
++++ b/mclib/heap.cpp
+@@ -228,15 +228,19 @@ long HeapManager::commitHeap (unsigned long commitSize)
+ #else	
+ 		return NO_ERR;
+ #endif
+-#else
+-		// only correct for 64bit?
+-        // currentEbp = esp;
+-        asm("mov %%rsp, %0;"
++#else
++		// only correct for 64bit?
++	#ifdef __APPLE__
++		return NO_ERR;
++	#else
++        // currentEbp = esp;
++        asm("mov %%rsp, %0;"
+             : "=r"(currentEbp)
+             :
+             :
+-        );
+-#endif
++        );
++	#endif
++#endif
+ 		prevEbp = *((unsigned long *)currentEbp);
+ 		retAddr = *((unsigned long *)(currentEbp+4));
+ 		whoMadeMe = retAddr;
+diff --git a/mclib/inifile.cpp b/mclib/inifile.cpp
+index af5ce6a..b8e23f4 100644
+--- a/mclib/inifile.cpp
++++ b/mclib/inifile.cpp
+@@ -1178,15 +1178,25 @@ long FitIniFile::readIdChar (const char *varName, char &value)
+ 	return(NO_ERR);
+ }
+ 
+-long FitIniFile::readIdULong (const char *varName, DWORD &value)
++long FitIniFile::readIdULong (const char *varName, DWORD &value)
+ {
+     uint64_t tmp = 0;
+     long rv = readIdULong (varName, tmp);
+     value = (DWORD)tmp;
+     return rv;
+-}
+-
+-//---------------------------------------------------------------------------
++}
++
++#ifdef __APPLE__
++long FitIniFile::readIdULong (const char *varName, unsigned long &value)
++{
++	uint64_t tmp = 0;
++	long rv = readIdULong(varName, tmp);
++	value = (unsigned long)tmp;
++	return rv;
++}
++#endif
++
++//---------------------------------------------------------------------------
+ long FitIniFile::readIdULong (const char *varName, uint64_t &value)
+ {
+ 	char line[255];
+diff --git a/mclib/inifile.h b/mclib/inifile.h
+index f74f498..db3cdcd 100644
+--- a/mclib/inifile.h
++++ b/mclib/inifile.h
+@@ -149,7 +149,10 @@ class FitIniFile : public File
+ 		long readIdLong (const char *varName, long &value);
+ 		long readIdULong (const char *varName, uint64_t &value);
+         // sebi
+-		long readIdULong (const char *varName, DWORD &value);
++		long readIdULong (const char *varName, DWORD &value);
++#ifdef __APPLE__
++		long readIdULong (const char *varName, unsigned long &value);
++#endif
+ 		
+ 		long readIdShort (const char *varName, short &value);
+ 		long readIdUShort (const char *varName, unsigned short &value);
+diff --git a/mclib/lzcomp.cpp b/mclib/lzcomp.cpp
+index 0a0ac07..57e33b2 100644
+--- a/mclib/lzcomp.cpp
++++ b/mclib/lzcomp.cpp
+@@ -14,7 +14,7 @@
+ 
+ #else
+ #include<assert.h>
+-#include<malloc.h>
++#include<stdlib.h>
+ #define gosASSERT assert
+ #define gos_Malloc malloc
+ #define gos_Free free
+diff --git a/mclib/mlr/mlrlightmap.cpp b/mclib/mlr/mlrlightmap.cpp
+index c600f60..c43951c 100644
+--- a/mclib/mlr/mlrlightmap.cpp
++++ b/mclib/mlr/mlrlightmap.cpp
+@@ -157,7 +157,7 @@ void
+ 	*stream << (int)Matrix4D;
+     // sebi !NB
+ 	//*stream << reinterpret_cast<int>(mat);
+-	*stream << reinterpret_cast<size_t>(mat);
++    *stream << static_cast<uint64_t>(reinterpret_cast<uintptr_t>(mat));
+ 
+ 	*stream << (int)ClippingState;
+ 	clippingState.Save(stream);
+@@ -194,7 +194,7 @@ void
+     // sebi !NB (because SetDrawData changed also)
+ 	//int i, pointerValue;
+ 	int i;
+-    size_t pointerValue;
++    uint64_t pointerValue;
+     //
+ 	Stuff::Point3D *coords = NULL;
+ 	Stuff::RGBAColor color;
+diff --git a/mclib/resizeimage.h b/mclib/resizeimage.h
+index a9e321c..de785ee 100644
+--- a/mclib/resizeimage.h
++++ b/mclib/resizeimage.h
+@@ -17,7 +17,7 @@
+ #include"dstd.h"
+ #endif
+ 
+-#include<malloc.h>
++#include<stdlib.h>
+ #include<memory.h>
+ #include<math.h>
+ 
+diff --git a/mclib/stuff/memorystream.hpp b/mclib/stuff/memorystream.hpp
+index 1f5996c..f463df3 100644
+--- a/mclib/stuff/memorystream.hpp
++++ b/mclib/stuff/memorystream.hpp
+@@ -211,11 +211,18 @@ namespace MemoryStreamIO {
+ 			Stuff::MemoryStream* stream,
+ 			uint64_t*output
+ 		);
+-	inline Stuff::MemoryStream&
+-		Read(
+-			Stuff::MemoryStream* stream,
+-			int64_t *output
+-		);
++	inline Stuff::MemoryStream&
++		Read(
++			Stuff::MemoryStream* stream,
++			int64_t *output
++		);
++#ifdef __APPLE__
++	inline Stuff::MemoryStream&
++		Read(
++			Stuff::MemoryStream* stream,
++			unsigned long *output
++		);
++#endif
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+ 	inline Stuff::MemoryStream&
+@@ -258,11 +265,18 @@ namespace MemoryStreamIO {
+ 			Stuff::MemoryStream* stream,
+ 			const uint64_t* input
+ 		);
+-	inline Stuff::MemoryStream&
+-		Write(
+-			Stuff::MemoryStream* stream,
+-			const int64_t *input
+-		);
++	inline Stuff::MemoryStream&
++		Write(
++			Stuff::MemoryStream* stream,
++			const int64_t *input
++		);
++#ifdef __APPLE__
++	inline Stuff::MemoryStream&
++		Write(
++			Stuff::MemoryStream* stream,
++			const unsigned long *input
++		);
++#endif
+ 	inline Stuff::MemoryStream&
+ 		Write(
+ 			Stuff::MemoryStream* stream,
+@@ -749,11 +763,24 @@ namespace MemoryStreamIO {
+ 		)
+ 			{return stream->ReadBytes(output, sizeof(*output));}
+ 	inline Stuff::MemoryStream&
+-		Read(
+-			Stuff::MemoryStream* stream,
+-			int64_t *output
+-		)
+-			{return stream->ReadBytes(output, sizeof(*output));}
++	Read(
++			Stuff::MemoryStream* stream,
++			int64_t *output
++		)
++			{return stream->ReadBytes(output, sizeof(*output));}
++#ifdef __APPLE__
++	inline Stuff::MemoryStream&
++		Read(
++			Stuff::MemoryStream* stream,
++			unsigned long *output
++		)
++		{
++			uint64_t value;
++			Read(stream, &value);
++			*output = static_cast<unsigned long>(value);
++			return *stream;
++		}
++#endif
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+ 	inline Stuff::MemoryStream&
+@@ -806,11 +833,22 @@ namespace MemoryStreamIO {
+ 		)
+ 			{return stream->WriteBytes(input, sizeof(*input));}
+ 	inline Stuff::MemoryStream&
+-		Write(
+-			Stuff::MemoryStream* stream,
+-			const int64_t* input
+-		)
+-			{return stream->WriteBytes(input, sizeof(*input));}
++	Write(
++			Stuff::MemoryStream* stream,
++			const int64_t* input
++		)
++			{return stream->WriteBytes(input, sizeof(*input));}
++#ifdef __APPLE__
++	inline Stuff::MemoryStream&
++		Write(
++			Stuff::MemoryStream* stream,
++			const unsigned long* input
++		)
++		{
++			uint64_t value = static_cast<uint64_t>(*input);
++			return Write(stream, &value);
++		}
++#endif
+ 
+ 	inline Stuff::MemoryStream&
+ 		Write(
+diff --git a/mclib/stuff/style.hpp b/mclib/stuff/style.hpp
+index c9ad6c1..cb2fc10 100644
+--- a/mclib/stuff/style.hpp
++++ b/mclib/stuff/style.hpp
+@@ -5,7 +5,9 @@
+ // Copyright (C) Microsoft Corporation. All rights reserved.                 //
+ //===========================================================================//
+ 
+-#pragma once
++#pragma once
++
++#include <new>
+ 
+ #include"stuff.hpp"
+ 
+@@ -175,4 +177,6 @@ namespace Stuff {
+ 
+ }
+ 
+-void* operator new(size_t size, void* where) noexcept;
++#ifndef __APPLE__
++void* operator new(size_t size, void* where) noexcept;
++#endif
+diff --git a/mclib/userinput.h b/mclib/userinput.h
+index 5723801..aaef028 100644
+--- a/mclib/userinput.h
++++ b/mclib/userinput.h
+@@ -124,7 +124,7 @@ class MouseCursorData
+ 		StaticInfo*	cursorInfos;	// gotta be pointer, so destructor is called before texmgr quits
+ 
+ 		char mouseHS[MAX_MOUSE_STATES][2];
+-		unsigned long numFrames[MAX_MOUSE_STATES];
++		DWORD numFrames[MAX_MOUSE_STATES];
+ 		float frameLengths[MAX_MOUSE_STATES];
+ 
+ 		friend class UserInput;
+diff --git a/mclib/vfx_ellipse.cpp b/mclib/vfx_ellipse.cpp
+index ec00962..caa43a5 100644
+--- a/mclib/vfx_ellipse.cpp
++++ b/mclib/vfx_ellipse.cpp
+@@ -622,7 +622,7 @@ void AG_ellipse_fillOr(PANE *pane, LONG xc, LONG yc, LONG width, LONG height, LO
+ 	{
+ 		xorgPane = pane;
+ 		gColor = (unsigned char)color;
+-		VFX_line_draw( pane, xc-width, yc-height, xc+width, yc+height,LD_EXECUTE, &orLineCallback);
++		VFX_line_draw( pane, xc-width, yc-height, xc+width, yc+height,LD_EXECUTE, (void*)&orLineCallback);
+ 		return;
+ 	}
+ 
+@@ -835,7 +835,7 @@ void AG_ellipse_fillXor(PANE *pane, LONG xc, LONG yc, LONG width, LONG height, L
+ 	{
+ 		xorgPane = pane;
+ 		gColor = (unsigned char)color;
+-		VFX_line_draw( pane, xc-width, yc-height, xc+width, yc+height, LD_EXECUTE, &andLineCallback);
++		VFX_line_draw( pane, xc-width, yc-height, xc+width, yc+height, LD_EXECUTE, (void*)&andLineCallback);
+ 		return;
+ 	}
+ 

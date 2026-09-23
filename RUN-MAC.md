@@ -195,13 +195,19 @@ Try these in order:
 
 ## Native Apple Silicon port
 
-There is an open-source 64-bit engine port at
-<https://github.com/alariq/mc2> with separate runtime-data tooling at
-<https://github.com/alariq/mc2srcdata>. It is potentially better than Wine
-because it uses SDL/OpenGL and runs as an ARM64 program, but it is a source
-port, not a converter for this ZIP. The data build expects additional generated
-archives and assets, and the current source requires Apple-Silicon portability
-fixes before it builds cleanly with the current Xcode toolchain.
+The workspace now includes the source port as a Git submodule:
+<https://github.com/alariq/mc2>. Its generated runtime data comes from
+<https://github.com/alariq/mc2srcdata>. Build and run the native ARM64 engine:
+
+```sh
+git submodule update --init
+./build-native-macos.sh
+./run-native-macos.sh
+```
+
+The native path uses SDL2/OpenGL input and rendering, so it bypasses Wine and
+the original DirectDraw/Win32 input path. It builds the source data locally and
+does not replace or redistribute Microsoft's game assets.
 
 ## Apple Game Porting Toolkit
 

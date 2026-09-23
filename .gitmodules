@@ -1,0 +1,3 @@
+[submodule "native/mc2"]
+	path = native/mc2
+	url = https://github.com/alariq/mc2.git
