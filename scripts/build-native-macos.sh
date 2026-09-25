@@ -27,6 +27,19 @@ need_command() {
 }
 
 for command in cmake git make; do need_command "$command"; done
+
+missing=()
+need_command brew
+for formula in sdl2-compat sdl2_mixer sdl2_ttf glew; do
+    brew --prefix "$formula" >/dev/null 2>&1 || missing+=("$formula")
+done
+if [[ ${#missing[@]} -gt 0 ]]; then
+    printf 'ERROR: missing Homebrew dependencies: %s\n' "${missing[*]}" >&2
+    printf 'Install with: brew install %s\n' "${missing[*]}" >&2
+    printf '       or:   make deps\n' >&2
+    exit 1
+fi
+
 [[ -d "$SOURCE_DIR" ]] || {
     printf 'ERROR: native source submodule is missing. Run: git submodule update --init\n' >&2
     exit 1
