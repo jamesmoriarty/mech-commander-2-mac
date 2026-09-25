@@ -5,6 +5,7 @@
 - **Platform:** macOS arm64, native `alariq/mc2` SDL/OpenGL build (HiDPI / `FULLSCREEN_DESKTOP`)
 - **First seen:** Options → Graphics → Resolution = **2560x1664x32** (max display mode), then back to mission
 - **Screenshots:**
+  - [`docs/screenshots/mech-lab.png`](../screenshots/mech-lab.png) — after fix: Mech Lab at 1920x1200 renders correctly framed across the full framebuffer
   - `/Users/jamesmoriarty/Desktop/Screenshot 2026-09-25 at 3.53.48 PM.png` — in mission: bottom command bar occupies only the left ~55% of the screen; pause menu (top-right) cramped; world/UI ratios look wrong
   - `/Users/jamesmoriarty/Desktop/Screenshot 2026-09-25 at 3.53.57 PM.png` — Graphics tab showing resolution `2560X1664X32`, video card `APPLE M4`; dialog framed as if still on a classic layout
 - **Crash signal:** none (visual/layout only)
