@@ -1,7 +1,16 @@
 diff --git a/GameOS/gameos/gameos_graphics.cpp b/GameOS/gameos/gameos_graphics.cpp
-index bb2fc00..9d9e6b0 100644
+index bb2fc00..f07c988 100644
 --- a/GameOS/gameos/gameos_graphics.cpp
 +++ b/GameOS/gameos/gameos_graphics.cpp
+@@ -168,7 +168,7 @@ class gosMaterialVariationHelper {
+ 
+         void getMaterialVariation(gosMaterialVariation& variation)
+         {
+-            std::string defines_str = "#version 420\n";
++            std::string defines_str = "#version 410\n";
+             std::string unique_suffix_str = "#";
+             for(auto d : defines)
+             {
 @@ -2259,11 +2259,13 @@ bool gos_CreateRenderer(HGOSWINDOW win, int w, int h) {
          return false;
      }
@@ -21,6 +30,438 @@ index bb2fc00..9d9e6b0 100644
  
      SPEW(("GRAPHICS", "Status: Using GLEW %s\n", glewGetString(GLEW_VERSION)));
      //if ((!GLEW_ARB_vertex_program || !GLEW_ARB_fragment_program))
+diff --git a/GameOS/gameos/gameos_input.cpp b/GameOS/gameos/gameos_input.cpp
+index 986012e..14c6cb2 100644
+--- a/GameOS/gameos/gameos_input.cpp
++++ b/GameOS/gameos/gameos_input.cpp
+@@ -27,13 +27,28 @@
+ // You may pass zero as any parameter you do not wish to query
+ //
+ ////////////////////////////////////////////////////////////////////////////////
+-void __stdcall gos_GetMouseInfo( float* pXPosition, float* pYPosition, int* pXDelta, int* pYDelta, int* pWheelDelta, DWORD* pButtonsPressed )
++extern SDL_Window* g_sdl_window;
++
++// Prefer the live SDL window size: Environment.screenWidth can disagree with
++// the real window after FULLSCREEN_DESKTOP / HiDPI (e.g. 800x600 vs 1920x1200).
++static void get_mouse_window_size(float* w, float* h)
+ {
+-    //const float w = (float)Environment.screenWidth;
+-    //const float h = (float)Environment.screenHeight;
++    int ww = 0, wh = 0;
++    if (g_sdl_window)
++        SDL_GetWindowSize(g_sdl_window, &ww, &wh);
++    if (ww <= 0) ww = Environment.screenWidth;
++    if (wh <= 0) wh = Environment.screenHeight;
++    *w = (float)ww;
++    *h = (float)wh;
++}
+ 
+-    const float w = (float)Environment.drawableWidth;
+-    const float h = (float)Environment.drawableHeight;
++void __stdcall gos_GetMouseInfo( float* pXPosition, float* pYPosition, int* pXDelta, int* pYDelta, int* pWheelDelta, DWORD* pButtonsPressed )
++{
++    // SDL mouse events / SDL_GetMouseState are in window points (same space as
++    // SDL_GetWindowSize). drawableWidth is backing pixels (2x on Retina) and
++    // must not be used for normalization.
++    float w = 0.f, h = 0.f;
++    get_mouse_window_size(&w, &h);
+ 
+     const input::MouseInfo* mi = input::getMouseInfo();
+ 
+@@ -74,11 +89,16 @@ void __stdcall gos_GetMouseInfo( float* pXPosition, float* pYPosition, int* pXDe
+ }
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+-extern SDL_Window* g_sdl_window;
+ void __stdcall gos_SetMousePosition( float XPosition, float YPosition )
+ {
++    // Callers pass normalized 0..1 coords (screen / viewMul).
++    // SDL_WarpMouseInWindow wants window points.
+     if(g_sdl_window) {
+-        SDL_WarpMouseInWindow(g_sdl_window, (int)XPosition, (int)YPosition);
++        float w = 0.f, h = 0.f;
++        get_mouse_window_size(&w, &h);
++        SDL_WarpMouseInWindow(g_sdl_window,
++            (int)(XPosition * w),
++            (int)(YPosition * h));
+     }
+ }
+ 
+diff --git a/GameOS/gameos/gameosmain.cpp b/GameOS/gameos/gameosmain.cpp
+index b0ef581..c43c791 100644
+--- a/GameOS/gameos/gameosmain.cpp
++++ b/GameOS/gameos/gameosmain.cpp
+@@ -21,6 +21,7 @@ extern void gos_RendererHandleEvents();
+ extern void gos_RenderUpdateDebugInput();
+ extern void gos_RenderEnableDebugDrawCalls();
+ extern bool gos_RenderGetEnableDebugDrawCalls();
++extern SDL_Window* g_sdl_window;
+ 
+ extern bool gosExitGameOS();
+ 
+@@ -28,13 +29,19 @@ extern bool gos_CreateAudio();
+ extern void gos_UpdateAudio();
+ extern void gos_DestroyAudio();
+ 
++// Diagnostic globals defined in mclib/userinput.cpp
++extern volatile bool UserInput_drawMouse_diag;
++extern int UserInput_mouseState_diag;
++
+ static bool g_exit = false;
+ static bool g_focus_lost = false;
++static int g_diag_counter = 0;
+ #if 0
+ static camera g_camera;
+ #endif
+ 
+ static void handle_key_down( SDL_Keysym* keysym ) {
++    fprintf(stderr, "[IN] keydown sym=%d mod=0x%x\n", keysym->sym, keysym->mod);
+     switch( keysym->sym ) {
+         case SDLK_ESCAPE:
+             if(keysym->mod & KMOD_RALT)
+@@ -55,21 +62,30 @@ static void set_mouse_capture(bool enabled)
+     graphics::grab_window(win, (bool)capture);
+ 
+     SDL_CaptureMouse(capture);
+-    SDL_ShowCursor(enabled ? SDL_DISABLE : SDL_ENABLE);
++    // Only hide the OS cursor when the game is actually drawing its own.
++    // drawMouse starts false — hiding unconditionally left no cursor at all.
++    extern volatile bool UserInput_drawMouse_diag;
++    SDL_ShowCursor((enabled && UserInput_drawMouse_diag) ? SDL_DISABLE : SDL_ENABLE);
+ }
+ 
+ static void process_events( void ) {
+ 
+     input::beginUpdateMouseState();
++    input::beginUpdateKeyboardState();
+ 
+     SDL_Event event;
++    int polled = 0;
+     while( SDL_PollEvent( &event ) ) {
++        polled++;
++        if (event.type != SDL_MOUSEMOTION)
++            fprintf(stderr, "[IN] event type=0x%x\n", event.type);
+ 
+         if(g_focus_lost) {
+             if(event.type != SDL_WINDOWEVENT || event.window.event != SDL_WINDOWEVENT_FOCUS_GAINED) {
+                 continue;
+             } else {
+                 g_focus_lost = false;
++                fprintf(stderr, "[IN] focus GAINED (from queue)\n");
+             }
+         }
+ 
+@@ -94,21 +110,31 @@ static void process_events( void ) {
+                     break;
+                 }
+                 case SDL_WINDOWEVENT_FOCUS_LOST:
++                    fprintf(stderr, "[IN] focus LOST\n");
+                     g_focus_lost = true;
+                     set_mouse_capture(false);
+                     break;
+                 case SDL_WINDOWEVENT_FOCUS_GAINED:
++                    fprintf(stderr, "[IN] focus GAINED\n");
+                     g_focus_lost = false;
+                     set_mouse_capture(true);
+                     break;
++                case SDL_WINDOWEVENT_ENTER:
++                    fprintf(stderr, "[IN] mouse ENTER\n");
++                    break;
++                case SDL_WINDOWEVENT_LEAVE:
++                    fprintf(stderr, "[IN] mouse LEAVE\n");
++                    break;
+             }
+             break;
+         case SDL_MOUSEMOTION:
+-            input::handleMouseMotion(&event); 
++            input::handleMouseMotion(&event);
+             break;
+         case SDL_MOUSEBUTTONDOWN:
+         case SDL_MOUSEBUTTONUP:
+-            //input::handleMouseButton(&event);
++            fprintf(stderr, "[IN] button %s btn=%d\n",
++                event.type==SDL_MOUSEBUTTONDOWN?"down":"up", event.button.button);
++            input::handleMouseButton(&event);
+             break;
+         case SDL_MOUSEWHEEL:
+             input::handleMouseWheel(&event);
+@@ -118,6 +144,38 @@ static void process_events( void ) {
+ 
+     input::updateMouseState();
+     input::updateKeyboardState();
++
++    // Keep OS cursor visible unless the game is drawing its own this frame.
++    // set_mouse_capture only runs on focus events; drawMouse can change anytime.
++    if (!g_focus_lost) {
++        static int last_cursor_mode = -1;
++        int mode = UserInput_drawMouse_diag ? SDL_DISABLE : SDL_ENABLE;
++        if (mode != last_cursor_mode) {
++            SDL_ShowCursor(mode);
++            last_cursor_mode = mode;
++        }
++    }
++
++    if ((++g_diag_counter % 120) == 0) {
++        int mx=0, my=0;
++        Uint32 bs = SDL_GetMouseState(&mx, &my);
++        int ww=0, wh=0;
++        if (g_sdl_window) SDL_GetWindowSize(g_sdl_window, &ww, &wh);
++        Uint32 wf = g_sdl_window ? SDL_GetWindowFlags(g_sdl_window) : 0;
++        extern float UserInput_viewMulX_diag;
++        extern float UserInput_viewMulY_diag;
++        extern volatile bool UserInput_drawMouse_diag;
++        extern int UserInput_mouseState_diag;
++        fprintf(stderr,
++            "[IN] polled=%d focus_lost=%d mouse=(%d,%d) buttons=0x%x win_flags=0x%x\n"
++            "[IN] drawMouse=%d mouseState=%d screen=%dx%d drawable=%dx%d win=%dx%d viewMul=%.1fx%.1f\n",
++            polled, (int)g_focus_lost, mx, my, bs, wf,
++            (int)UserInput_drawMouse_diag, UserInput_mouseState_diag,
++            Environment.screenWidth, Environment.screenHeight,
++            Environment.drawableWidth, Environment.drawableHeight,
++            ww, wh,
++            UserInput_viewMulX_diag, UserInput_viewMulY_diag);
++    }
+ }
+ 
+ extern bool g_disable_quads;
+diff --git a/GameOS/gameos/gos_input.cpp b/GameOS/gameos/gos_input.cpp
+index 18c2301..c8317f8 100644
+--- a/GameOS/gameos/gos_input.cpp
++++ b/GameOS/gameos/gos_input.cpp
+@@ -13,6 +13,9 @@ MouseInfo::MouseInfo()
+      wheel_vert_(0), wheel_hor_(0)
+ {
+     memset(button_state_, 0 ,sizeof(button_state_));
++    memset(button_down_event_, 0, sizeof(button_down_event_));
++    memset(button_up_event_, 0, sizeof(button_up_event_));
++    memset(button_pending_release_, 0, sizeof(button_pending_release_));
+ }
+ 
+ KeyboardInfo::KeyboardInfo():
+@@ -21,6 +24,9 @@ KeyboardInfo::KeyboardInfo():
+     first_pressed_(-1)
+ {
+     memset(last_state_, 0, sizeof(last_state_));
++    memset(key_down_event_, 0, sizeof(key_down_event_));
++    memset(key_up_event_, 0, sizeof(key_up_event_));
++    memset(key_pending_release_, 0, sizeof(key_pending_release_));
+ }
+ 
+ const MouseInfo* getMouseInfo() {
+@@ -62,8 +68,18 @@ void handleMouseButton(const SDL_Event* event) {
+ 
+     MouseInfo* mi = &g_mouse_info;
+     int idx = sdl2idx(event->button.button);
+-    if(idx != -1 && idx < MouseInfo::NUM_BUTTONS) {
+-        mi->button_state_[idx] = event->type == SDL_MOUSEBUTTONUP ? KS_PRESSED : KS_RELEASED;
++    if(idx == -1 || idx >= MouseInfo::NUM_BUTTONS)
++        return;
++
++    // Latch edges from events so a down+up within one frame still counts.
++    if (event->type == SDL_MOUSEBUTTONDOWN) {
++        mi->button_down_event_[idx] = true;
++        mi->button_up_event_[idx] = false;
++        mi->button_pending_release_[idx] = false;
++    } else if (event->type == SDL_MOUSEBUTTONUP) {
++        mi->button_up_event_[idx] = true;
++        if (mi->button_state_[idx] == KS_PRESSED || mi->button_state_[idx] == KS_HELD)
++            mi->button_pending_release_[idx] = true;
+     }
+ }
+ 
+@@ -86,12 +102,21 @@ void beginUpdateMouseState() {
+     MouseInfo* mi = &g_mouse_info;
+     mi->rel_x_ = mi->rel_y_ = 0.0f;
+     mi->wheel_hor_ = mi->wheel_vert_ = 0.0f;
++    // Clear per-frame event latches (pending_release carries to this frame's end).
++    memset(mi->button_down_event_, 0, sizeof(mi->button_down_event_));
++    memset(mi->button_up_event_, 0, sizeof(mi->button_up_event_));
+ }
+ 
+ void updateMouseState() {
+     MouseInfo* mi = &g_mouse_info;
+ 
+-    Uint32 button_state = SDL_GetMouseState(NULL, NULL);
++    int mx = 0, my = 0;
++    Uint32 button_state = SDL_GetMouseState(&mx, &my);
++    // Poll absolute position every frame — motion events alone can go stale
++    // (e.g. after focus events, or when the pointer is captured).
++    mi->x_ = (float)mx;
++    mi->y_ = (float)my;
++
+     int buttons[] = {SDL_BUTTON_LEFT, SDL_BUTTON_MIDDLE, SDL_BUTTON_RIGHT, SDL_BUTTON_X1, SDL_BUTTON_X2 };
+ 
+     for(unsigned int b=0; b < sizeof(buttons)/sizeof(buttons[0]); ++b) {
+@@ -101,20 +126,30 @@ void updateMouseState() {
+             continue;
+ 
+         KeyState prev_ks = mi->button_state_[idx];
+-
+-        if(button_state & SDL_BUTTON(buttons[b])) {
+-            mi->button_state_[idx] = 
+-                (prev_ks==KS_FREE||prev_ks==KS_RELEASED) ? KS_PRESSED : KS_HELD;
++        bool down = (button_state & SDL_BUTTON(buttons[b])) != 0;
++        bool down_ev = mi->button_down_event_[idx];
++        bool up_ev = mi->button_up_event_[idx];
++
++        // Prefer event edges so same-frame click is not lost to polling.
++        if (down_ev) {
++            // Down this frame: always expose PRESSED (even if already up again).
++            mi->button_state_[idx] = KS_PRESSED;
++            if (up_ev || !down)
++                mi->button_pending_release_[idx] = true;
++        } else if (mi->button_pending_release_[idx]) {
++            // Carried release from a same-frame down+up.
++            mi->button_state_[idx] = KS_RELEASED;
++            mi->button_pending_release_[idx] = false;
++        } else if (up_ev) {
++            mi->button_state_[idx] =
++                (prev_ks == KS_HELD || prev_ks == KS_PRESSED) ? KS_RELEASED : KS_FREE;
++        } else if (down) {
++            mi->button_state_[idx] =
++                (prev_ks == KS_FREE || prev_ks == KS_RELEASED) ? KS_PRESSED : KS_HELD;
+         } else {
+-            mi->button_state_[idx] = 
+-                (prev_ks==KS_HELD||prev_ks==KS_PRESSED) ? KS_RELEASED : KS_FREE;
++            mi->button_state_[idx] =
++                (prev_ks == KS_HELD || prev_ks == KS_PRESSED) ? KS_RELEASED : KS_FREE;
+         }
+-#if 0
+-        if(mi->button_state_[idx] == KS_PRESSED)
+-            printf("%d pressed\n", idx);
+-        if(mi->button_state_[idx] == KS_RELEASED)
+-            printf("%d released\n", idx);
+-#endif
+     }
+ }
+ 
+@@ -126,43 +161,82 @@ void handleKeyEvent(const SDL_Event* event) {
+     KeyboardInfo* ki = &g_keyboard_info;
+     if(event->key.state == SDL_PRESSED) {
+         ki->key_pressed_ = true;
++        int sc = (int)event->key.keysym.scancode;
++        if (sc >= 0 && sc < 512) {
++            ki->key_down_event_[sc] = true;
++            ki->key_up_event_[sc] = false;
++            ki->key_pending_release_[sc] = false;
++        }
+     } else {
+         ki->key_released_ = true;
++        int sc = (int)event->key.keysym.scancode;
++        if (sc >= 0 && sc < 512) {
++            ki->key_up_event_[sc] = true;
++            if (ki->last_state_[sc] == KS_PRESSED || ki->last_state_[sc] == KS_HELD)
++                ki->key_pending_release_[sc] = true;
++        }
+     }
+ 
+     ki->pressed_keysym_ = event->key.keysym;
+ }
+ 
++void beginUpdateKeyboardState() {
++    KeyboardInfo* ki = &g_keyboard_info;
++    memset(ki->key_down_event_, 0, sizeof(ki->key_down_event_));
++    memset(ki->key_up_event_, 0, sizeof(ki->key_up_event_));
++}
++
+ void updateKeyboardState() {
+     KeyboardInfo* ki = &g_keyboard_info;
+ 
+     int array_len;
+     const Uint8* state = SDL_GetKeyboardState(&array_len);
+     assert(array_len <= sizeof(ki->last_state_)/sizeof(ki->last_state_[0]));
++    if (array_len > 512)
++        array_len = 512;
+ 
+     ki->first_pressed_ = -1;
+ 
+     for(int i=0; i<array_len; ++i) {
+ 
+         uint8_t ls = ki->last_state_[i];
+-
+-        if(state[i]) {
+-           ls = (ls==KS_FREE||ls==KS_RELEASED) ? KS_PRESSED : KS_HELD;
++        bool down = state[i] != 0;
++        bool down_ev = ki->key_down_event_[i];
++        bool up_ev = ki->key_up_event_[i];
++
++        // Event edges win so same-frame tap is visible to getKeyDown this frame.
++        if (down_ev) {
++            ls = (ls == KS_FREE || ls == KS_RELEASED) ? KS_PRESSED : KS_HELD;
++            if (up_ev || !down)
++                ki->key_pending_release_[i] = true;
++        } else if (ki->key_pending_release_[i]) {
++            ls = KS_RELEASED;
++            ki->key_pending_release_[i] = false;
++        } else if (up_ev) {
++            ls = (ls == KS_HELD || ls == KS_PRESSED) ? KS_RELEASED : KS_FREE;
++        } else if (down) {
++            ls = (ls == KS_FREE || ls == KS_RELEASED) ? KS_PRESSED : KS_HELD;
+         } else {
+-           ls = (ls==KS_HELD||ls==KS_PRESSED) ? KS_RELEASED : KS_FREE;
++            ls = (ls == KS_HELD || ls == KS_PRESSED) ? KS_RELEASED : KS_FREE;
+         }
+-        ki->last_state_[i] = ls;
+ 
+-#if 0
+-        if(ls == KS_PRESSED || ls==KS_RELEASED) {
+-            printf("key: %d %s\n", i, ls==KS_PRESSED ? "PRESSED" : "RELEASED");
+-        }
+-#endif
++        ki->last_state_[i] = ls;
+ 
+         if(ki->first_pressed_==-1 && ls==KS_PRESSED) {
+             ki->first_pressed_ = i;
+         }
+     }
++
++    // Keys beyond SDL's array_len: flush carried releases.
++    for (int i = array_len; i < 512; ++i) {
++        if (ki->key_pending_release_[i]) {
++            if (ki->last_state_[i] == KS_PRESSED || ki->last_state_[i] == KS_HELD)
++                ki->last_state_[i] = KS_RELEASED;
++            else
++                ki->last_state_[i] = KS_FREE;
++            ki->key_pending_release_[i] = false;
++        }
++    }
+ }
+ 
+ } // namespace
+diff --git a/GameOS/gameos/gos_input.h b/GameOS/gameos/gos_input.h
+index f257af9..8eae3a7 100644
+--- a/GameOS/gameos/gos_input.h
++++ b/GameOS/gameos/gos_input.h
+@@ -21,6 +21,10 @@ struct MouseInfo {
+     float wheel_vert_;
+     float wheel_hor_;
+     KeyState button_state_[NUM_BUTTONS];
++    // Edge latches from SDL events this frame (survive same-frame down+up).
++    bool button_down_event_[NUM_BUTTONS];
++    bool button_up_event_[NUM_BUTTONS];
++    bool button_pending_release_[NUM_BUTTONS];
+ };
+ 
+ struct KeyboardInfo {
+@@ -31,6 +35,10 @@ struct KeyboardInfo {
+     SDL_Keysym released_keysym_;
+     uint32_t first_pressed_;
+     uint8_t last_state_[512];
++    // Per-scancode edge latches set from SDL events this frame.
++    bool key_down_event_[512];
++    bool key_up_event_[512];
++    bool key_pending_release_[512];
+ };
+ 
+ const MouseInfo* getMouseInfo();
+@@ -43,6 +51,7 @@ void beginUpdateMouseState();
+ void updateMouseState();
+ 
+ void handleKeyEvent(const SDL_Event* event);
++void beginUpdateKeyboardState();
+ void updateKeyboardState();
+ 
+ void resetKeypress();
 diff --git a/GameOS/gameos/utils/file_utils.cpp b/GameOS/gameos/utils/file_utils.cpp
 index 5d2875b..3a89792 100644
 --- a/GameOS/gameos/utils/file_utils.cpp
@@ -87,6 +528,35 @@ index 4d6f561..61b430f 100644
  
  #endif // __cplusplus
 -
+diff --git a/GameOS/src/platform_mmsystem.cpp b/GameOS/src/platform_mmsystem.cpp
+index 3333866..946d924 100644
+--- a/GameOS/src/platform_mmsystem.cpp
++++ b/GameOS/src/platform_mmsystem.cpp
+@@ -5,15 +5,19 @@
+ 
+ 
+ #include <time.h>
++#include <stdint.h>
+ 
+ DWORD timeGetTime()
+ {
+-    // we do not care about overflow here
++    // 32-bit ms since boot, wrapping like Win32 timeGetTime.
++    // Must compute in 64-bit then truncate: assigning an out-of-range
++    // double to DWORD saturates to 0xFFFFFFFF on ARM64 (after ~49.7 days
++    // of tv_sec*1000), which froze ABL GetLogisticsTime timers.
+     struct timespec ts;
+     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+-    DWORD milliseconds = ts.tv_sec * 1e+3;
+-    milliseconds += ts.tv_nsec / 1e+6;
+-    return milliseconds;
++    uint64_t milliseconds = (uint64_t)ts.tv_sec * 1000u
++        + (uint64_t)(ts.tv_nsec / 1000000);
++    return (DWORD)(milliseconds & 0xFFFFFFFFull);
+ }
+ 
+ #endif // PLATFORM_WINDOWS
+\ No newline at end of file
 diff --git a/GameOS/src/platform_winbase.cpp b/GameOS/src/platform_winbase.cpp
 index 99731ac..c9ece91 100644
 --- a/GameOS/src/platform_winbase.cpp
@@ -109,6 +579,57 @@ index 99731ac..c9ece91 100644
  
  
 -
+diff --git a/code/ablmc2.cpp b/code/ablmc2.cpp
+index a656846..fde2128 100644
+--- a/code/ablmc2.cpp
++++ b/code/ablmc2.cpp
+@@ -5201,7 +5201,11 @@ void execSetMovieMode (void)
+ 	//-----------------------------------------------------
+ 
+ 	if (eye)
++	{
+ 		eye->setMovieMode();
++		fprintf(stderr, "[ABL] SetMovieMode -> inMovieMode=%d forceMovieEnd=%d\n",
++			(int)eye->inMovieMode, (int)eye->forceMovieEnd);
++	}
+ }
+ 
+ //*****************************************************************************
+@@ -5221,7 +5225,11 @@ void execEndMovieMode (void)
+ 	//-----------------------------------------------------
+ 
+ 	if (eye)
++	{
+ 		eye->endMovieMode();
++		fprintf(stderr, "[ABL] EndMovieMode -> inMovieMode=%d forceMovieEnd=%d\n",
++			(int)eye->inMovieMode, (int)eye->forceMovieEnd);
++	}
+ }
+ 
+ //*****************************************************************************
+@@ -5303,7 +5311,7 @@ void execForceMovieEnd (void)
+ 	DWORD result = 0;
+ 	if (eye && eye->forceMovieEnd)
+ 		result = 1;
+-		
++
+ 	ABLi_pushInteger(result);
+ }
+ 
+@@ -6103,6 +6111,13 @@ void execMCPrint (void) {
+ 		case ABL_STACKITEM_INTEGER:
+ 			sprintf(s, "int=%d", value.data.integer);
+ 			DEBUGWINS_print(s, 0);
++			{
++				static int last_mcprint_int = -0x7fffffff;
++				if (value.data.integer != last_mcprint_int) {
++					fprintf(stderr, "[ABL] mcprint int=%d\n", value.data.integer);
++					last_mcprint_int = value.data.integer;
++				}
++			}
+ 			break;
+ 		case ABL_STACKITEM_REAL:
+ 			sprintf(s, "real=%.2f", value.data.real);
 diff --git a/code/componentlistbox.cpp b/code/componentlistbox.cpp
 index 692eadc..53e0cda 100644
 --- a/code/componentlistbox.cpp
@@ -135,6 +656,69 @@ index 01fc0bd..18394d5 100644
  
  #include"chatwindow.h"
  
+diff --git a/code/loadscreen.cpp b/code/loadscreen.cpp
+index 1cc1007..4750c99 100644
+--- a/code/loadscreen.cpp
++++ b/code/loadscreen.cpp
+@@ -24,6 +24,8 @@ struct DDSURFACEDESC2 {
+ #include"gamesound.h"
+ float loadProgress = 0.0f;
+ 
++extern volatile bool UserInput_drawMouse_diag;
++
+ long LoadScreen::xProgressLoc = 0;
+ long LoadScreen::yProgressLoc = 0;
+ long LoadScreen::xWaitLoc = 0;
+@@ -505,6 +507,13 @@ void LoadScreen::update()
+ 	else
+ 	{
+ 		userInput->mouseOff();
++		{
++			static int ls_diag = 0;
++			if ((++ls_diag % 120) == 0) {
++				fprintf(stderr, "[LOAD] anim not done mouseOff drawMouse=%d progress=%.1f\n",
++					(int)UserInput_drawMouse_diag, loadProgress);
++			}
++		}
+ 	}
+ }
+ 
+diff --git a/code/logistics.cpp b/code/logistics.cpp
+index 4907f48..d66309d 100644
+--- a/code/logistics.cpp
++++ b/code/logistics.cpp
+@@ -49,6 +49,8 @@
+ #ifndef PREFS_H
+ #include"prefs.h"
+ #endif
++
++extern volatile bool UserInput_drawMouse_diag;
+ extern CPrefs prefs;
+ 
+ #ifndef GAMECAM_H
+@@ -105,7 +107,7 @@ void Logistics::start (long startMode)
+ {
+ 	bMissionLoaded  = 0;
+ 	userInput->setMouseCursor( mState_LOGISTICS );
+-//	userInput->mouseOn();
++	userInput->mouseOn();
+ 
+ 	DWORD localRenderer = prefs.renderer;
+ 	if (prefs.renderer != 0 && prefs.renderer != 3)
+@@ -267,6 +269,13 @@ long Logistics::update (void)
+ 	if ( bMovie )
+ 	{
+ 		userInput->mouseOff();
++		{
++			static int logmv_diag = 0;
++			if ((++logmv_diag % 120) == 0) {
++				fprintf(stderr, "[LOGMV] bMovie playing mouseOff drawMouse=%d\n",
++					(int)UserInput_drawMouse_diag);
++			}
++		}
+ 		if (userInput->getKeyDown(KEY_SPACE) || userInput->getKeyDown(KEY_ESCAPE) || userInput->getKeyDown(KEY_LMOUSE))
+ 		{
+ 			bMovie->stop();
 diff --git a/code/logisticsdata.cpp b/code/logisticsdata.cpp
 index 7cf4adf..bde81ce 100644
 --- a/code/logisticsdata.cpp
@@ -161,6 +745,110 @@ index c077e50..ef6e4cc 100644
  #include"missionbriefingscreen.h"
  #include"sounds.h"
  #include"gamesound.h"
+diff --git a/code/mainmenu.cpp b/code/mainmenu.cpp
+index 92b9308..807d130 100644
+--- a/code/mainmenu.cpp
++++ b/code/mainmenu.cpp
+@@ -28,6 +28,8 @@ struct DDSURFACEDESC2 {
+ #include"multplyr.h"
+ 
+ #include"prefs.h"
++
++extern volatile bool UserInput_drawMouse_diag;
+ extern CPrefs prefs;
+ 
+ 
+@@ -424,7 +426,7 @@ void MainMenu::skipIntro()
+ 		introMovie->stop();
+ 		delete introMovie;
+ 		introMovie = NULL;
+-
++		userInput->mouseOn();
+ 	}
+ }
+ 
+@@ -443,9 +445,23 @@ void MainMenu::update()
+ 	if ( introMovie )
+ 	{
+ 		userInput->mouseOff();
++		{
++			static int intro_diag = 0;
++			if ((++intro_diag % 120) == 0) {
++				fprintf(stderr, "[INTRO] introMovie playing mouseOff drawMouse=%d\n",
++					(int)UserInput_drawMouse_diag);
++			}
++		}
+ 
+ 		if (userInput->getKeyDown(KEY_SPACE) || userInput->getKeyDown(KEY_ESCAPE) || userInput->getKeyDown(KEY_LMOUSE))
+ 		{
++			static int intro_skip_diag = 0;
++			if ((++intro_skip_diag % 60) == 1) {
++				fprintf(stderr, "[INTRO] skip key space=%d esc=%d lmb=%d\n",
++					(int)userInput->getKeyDown(KEY_SPACE),
++					(int)userInput->getKeyDown(KEY_ESCAPE),
++					(int)userInput->getKeyDown(KEY_LMOUSE));
++			}
+ 			introMovie->stop();
+ 		}
+ 
+@@ -464,6 +480,7 @@ void MainMenu::update()
+ 			//Whack it.
+ 			delete introMovie;
+ 			introMovie = NULL;
++			userInput->mouseOn();
+ 		}
+ 
+ 		return;
+diff --git a/code/mechcmd2.cpp b/code/mechcmd2.cpp
+index 8b6b0e2..ab7f71c 100644
+--- a/code/mechcmd2.cpp
++++ b/code/mechcmd2.cpp
+@@ -1617,8 +1617,8 @@ void __stdcall InitializeGameEngine()
+ 		//--------------------------------------------------------------
+ 		// Load up the mouse cursors
+ 		userInput->initMouseCursors("cursors");
+-		userInput->mouseOff();
+ 		userInput->setMouseCursor(mState_NORMAL);
++		userInput->mouseOn();
+ 	
+ 		//------------------------------------------------
+ 		// Give the Sound System a Whirl!
+@@ -2102,17 +2102,32 @@ void __stdcall DoGameLogic()
+ 			//-------------------------------------
+ 			// Poll devices for this frame.
+ 			userInput->update();
+-	
++
+ 			//----------------------------------------
+ 			// Update the Sound System for this frame
+ 			soundSystem->update();
+-			
++
+ 			//----------------------------------------
+ 			// Update all of the timers
+ 			timerManager->update();
+-	
++
+ 			//-----------------------------------------------------
+ 			// Update Mission and Logistics here.
++			{
++				static int logic_diag = 0;
++				if ((++logic_diag % 120) == 0) {
++					fprintf(stderr, "[LOGIC] logistics=%p movie=%d mission=%p mActive=%d iface=%p movieMode=%d options=%p forceEnd=%d vo=%d\n",
++						(const void*)logistics,
++						(logistics && logistics->bMovie) ? 1 : 0,
++						(const void*)mission,
++						mission ? (int)mission->isActive() : -1,
++						(mission && mission->missionInterface) ? (const void*)mission->missionInterface : NULL,
++						(eye && eye->inMovieMode) ? 1 : 0,
++						(const void*)optionsScreenWrapper,
++						(eye && eye->forceMovieEnd) ? 1 : 0,
++						soundSystem ? (int)soundSystem->isPlayingVoiceOver() : -1);
++				}
++			}
+ 			if (logistics)
+ 			{
+ 				long result = logistics->update();
 diff --git a/code/mechlabscreen.cpp b/code/mechlabscreen.cpp
 index b7a42c7..8223e16 100644
 --- a/code/mechlabscreen.cpp
@@ -174,6 +862,93 @@ index b7a42c7..8223e16 100644
  #include"gamesound.h"
  #include"chatwindow.h"
  #include"multplyr.h"
+diff --git a/code/mission.cpp b/code/mission.cpp
+index fbafe35..42b6f0f 100644
+--- a/code/mission.cpp
++++ b/code/mission.cpp
+@@ -533,11 +533,27 @@ long Mission::update (void)
+ 			{
+ 				ProfileTime(MCTimeMissionScript,missionBrain->execute());
+ 				long missionResult = missionBrain->getInteger();
++				{
++					static long brain_diag = 0;
++					if ((++brain_diag % 120) == 0) {
++						fprintf(stderr, "[BRAIN] exec #%ld result=%ld inMovie=%d forceEnd=%d vo=%d\n",
++							brain_diag, missionResult,
++							eye ? (int)eye->inMovieMode : -1,
++							eye ? (int)eye->forceMovieEnd : -1,
++							soundSystem ? (int)soundSystem->isPlayingVoiceOver() : -1);
++					}
++				}
+ 				if (missionResult == 9999)
+ 					return(terminationResult = 9999);
+ 				if (!MPlayer)
+ 					terminationResult = missionResult;
+ 			}
++			else
++			{
++				static long brain_paused_diag = 0;
++				if ((++brain_paused_diag % 120) == 0)
++					fprintf(stderr, "[BRAIN] SKIPPED (paused)\n");
++			}
+ 		}
+ 
+ 		//----------------------------------------------------
+diff --git a/code/missiongui.cpp b/code/missiongui.cpp
+index 2d93774..1116af9 100644
+--- a/code/missiongui.cpp
++++ b/code/missiongui.cpp
+@@ -431,19 +431,32 @@ void MissionInterfaceManager::update (void)
+ 	bForcedShot = false;
+ 	bAimedShot = false;
+ 
++	extern volatile bool UserInput_drawMouse_diag;
++
+ 	if (eye && eye->inMovieMode)
+ 	{
+         SPEW(("DBG", "eye->inMovieMode: %d\n", eye->inMovieMode));
+ 		drawGUIOn = false;
+ 		userInput->mouseOff();
+-		
++		{
++			static int movie_diag = 0;
++			if ((++movie_diag % 120) == 0) {
++				fprintf(stderr, "[MIGUI] inMovieMode mouseOff drawMouse=%d forceEnd=%d\n",
++					(int)UserInput_drawMouse_diag,
++					(eye && eye->forceMovieEnd) ? 1 : 0);
++			}
++		}
++
+ 		//Need to check for ESC key so user can end IMI IMMEDIATELY.
+ 		// After that check, just return.  Do NOT update any of the UI!!!!
+ 		if (userInput->getKeyDown(KEY_ESCAPE))
++		{
++			fprintf(stderr, "[MIGUI] ESC -> forceMovieToEnd\n");
+ 			eye->forceMovieToEnd();
++		}
+ 
+ 		controlGui.update(isPaused() && !isPausedWithoutMenu(), false );
+-			
++
+ 		return;
+ 	}
+ 	else
+@@ -451,6 +464,15 @@ void MissionInterfaceManager::update (void)
+ 		drawGUIOn = toggledGUI;
+ 		userInput->mouseOn();
+ 	}
++
++	{
++		static int migui_diag = 0;
++		if ((++migui_diag % 120) == 0) {
++			fprintf(stderr, "[MIGUI] mouseOn path movie=0 anim=%d paused=%d getXY=%ld,%ld\n",
++				(int)animationRunning, (int)isPaused(),
++				userInput->getMouseX(), userInput->getMouseY());
++		}
++	}
+ 	
+ 	if (animationRunning)
+ 	{
 diff --git a/code/pilotreviewarea.cpp b/code/pilotreviewarea.cpp
 index af972ec..e48dbde 100644
 --- a/code/pilotreviewarea.cpp
@@ -200,6 +975,41 @@ index be22f30..05f5596 100644
  
  aAnimButton* SalvageListItem::templateCheckButton = NULL;
  
+diff --git a/mclib/camera.cpp b/mclib/camera.cpp
+index b451c9f..407686f 100644
+--- a/mclib/camera.cpp
++++ b/mclib/camera.cpp
+@@ -1439,6 +1439,17 @@ void Camera::updateDaylight (bool bInitialize)
+ //---------------------------------------------------------------------------
+ void Camera::updateLetterboxAndFade (void)
+ {
++	{
++		static bool last_inMovie = false;
++		static bool last_startEnding = false;
++		if (inMovieMode != last_inMovie || startEnding != last_startEnding) {
++			fprintf(stderr, "[CAM] movie in=%d ending=%d lbPos=%.4f lbTime=%.3f forceEnd=%d\n",
++				(int)inMovieMode, (int)startEnding,
++				(double)letterBoxPos, (double)letterBoxTime, (int)forceMovieEnd);
++			last_inMovie = inMovieMode;
++			last_startEnding = startEnding;
++		}
++	}
+ 	//OK, if we are inMovieMode and we haven't finished letterboxing, finish it!
+ 	if (!startEnding && inMovieMode && (letterBoxTime != MaxLetterBoxTime))
+ 	{
+@@ -1455,6 +1466,12 @@ void Camera::updateLetterboxAndFade (void)
+ 	}
+ 	
+ 	//Now, if we are in startEnding and we haven't finished DE-Letterboxing, finish it.
++	// sebi/defect0003: if letterbox never opened (letterBoxPos already 0), still clear inMovieMode.
++	if (startEnding && inMovieMode && (letterBoxPos == 0.0f))
++	{
++		inMovieMode = false;
++		startEnding = false;
++	}
+ 	if (startEnding && inMovieMode && (letterBoxPos != 0.0f))
+ 	{
+ 		letterBoxTime -= frameLength;
 diff --git a/mclib/color.cpp b/mclib/color.cpp
 index ba7c974..ee29631 100644
 --- a/mclib/color.cpp
@@ -358,6 +1168,19 @@ index 0a0ac07..57e33b2 100644
  #define gosASSERT assert
  #define gos_Malloc malloc
  #define gos_Free free
+diff --git a/mclib/mlr/gosimagepool.hpp b/mclib/mlr/gosimagepool.hpp
+index 7074bf0..beeeccd 100644
+--- a/mclib/mlr/gosimagepool.hpp
++++ b/mclib/mlr/gosimagepool.hpp
+@@ -21,7 +21,7 @@ namespace MidLevelRenderer {
+ 	//
+ 	public:
+ 		GOSImagePool();
+-		~GOSImagePool();
++		virtual ~GOSImagePool();
+ 
+ 	//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 	// Image handling
 diff --git a/mclib/mlr/mlrlightmap.cpp b/mclib/mlr/mlrlightmap.cpp
 index c600f60..c43951c 100644
 --- a/mclib/mlr/mlrlightmap.cpp
@@ -526,8 +1349,108 @@ index c9ad6c1..cb2fc10 100644
 +#ifndef __APPLE__
 +void* operator new(size_t size, void* where) noexcept;
 +#endif
+diff --git a/mclib/userinput.cpp b/mclib/userinput.cpp
+index b9ac06b..2b2f1e7 100644
+--- a/mclib/userinput.cpp
++++ b/mclib/userinput.cpp
+@@ -46,6 +46,10 @@
+ UserInput *userInput = NULL;
+ extern bool 			hasGuardBand;
+ volatile bool			UserInput::drawMouse = false;
++volatile bool			UserInput_drawMouse_diag = false;
++int						UserInput_mouseState_diag = -1;
++float					UserInput_viewMulX_diag = 0.f;
++float					UserInput_viewMulY_diag = 0.f;
+ extern volatile bool 	mc2IsInDisplayBackBuffer;
+ extern volatile bool 	mc2IsInMouseTimer;
+ 
+@@ -121,12 +125,24 @@ void MouseCursorData::destroy (void)
+ //---------------------------------------------------------------------------
+ void UserInput::mouseOn (void)				//Draw Mouse Cursor
+ {
++	bool was = drawMouse;
+ 	drawMouse = true;
++	UserInput_drawMouse_diag = true;
++	if (!was) {
++		void* ra = __builtin_return_address(0);
++		fprintf(stderr, "[UI] mouseOn ra=%p\n", ra);
++	}
+ }
+ 
+ void UserInput::mouseOff (void)				//Don't Draw Mouse Cursor
+ {
++	bool was = drawMouse;
+ 	drawMouse = false;
++	UserInput_drawMouse_diag = false;
++	if (was) {
++		void* ra = __builtin_return_address(0);
++		fprintf(stderr, "[UI] mouseOff ra=%p\n", ra);
++	}
+ }
+ 
+ void UserInput::setMouseCursor (long state)
+@@ -142,6 +158,7 @@ void UserInput::setMouseCursor (long state)
+     */
+ 
+ 	mouseState = state;
++	UserInput_mouseState_diag = (int)state;
+ }
+ 
+ //---------------------------------------------------------------------------
+@@ -185,6 +202,27 @@ void UserInput::update (void)
+ 	DWORD buttonStates;
+ 	gos_GetMouseInfo(&mouseXPosition,&mouseYPosition,(int *)&mouseXDelta,(int *)&mouseYDelta,(int *)&mouseWheelDelta,&buttonStates);
+ 
++	UserInput_viewMulX_diag = viewMulX;
++	UserInput_viewMulY_diag = viewMulY;
++
++	// Until the camera/mission sets a viewport, hit-tests and cursor draw
++	// need a non-zero scale or everything collapses to the origin.
++	if (fabs(viewMulX) < Stuff::SMALL)
++		viewMulX = (float)Environment.screenWidth;
++	if (fabs(viewMulY) < Stuff::SMALL)
++		viewMulY = (float)Environment.screenHeight;
++
++	static DWORD last_buttons_diag = 0;
++	if (buttonStates != last_buttons_diag) {
++		fprintf(stderr, "[UI] buttons 0x%lx -> 0x%lx lkey=%d rkey=%d drag=%d mx=%.3f my=%.3f viewMul=%.1f,%.1f getXY=%ld,%ld\n",
++			(unsigned long)last_buttons_diag, (unsigned long)buttonStates,
++			(int)gos_GetKeyStatus(KEY_LMOUSE), (int)gos_GetKeyStatus(KEY_RMOUSE),
++			(int)leftMouseDrag,
++			mouseXPosition, mouseYPosition, viewMulX, viewMulY,
++			getMouseX(), getMouseY());
++		last_buttons_diag = buttonStates;
++	}
++
+     // sebi: actually use gos
+ 	leftMouseButtonState = buttonStates & 1 ?           MC2_MOUSE_DOWN : MC2_MOUSE_UP;
+ 	middleMouseButtonState = (buttonStates & 2) >> 1 ?  MC2_MOUSE_DOWN : MC2_MOUSE_UP;
+@@ -247,8 +285,10 @@ void UserInput::update (void)
+ 		mouseDragY = lastMouseYPosition;
+ 
+ 		leftMouseDrag = 0;
+-		
+ 
++		fprintf(stderr, "[UI] left edge dbl=%d click=%d upT=%.4f getXY=%ld,%ld\n",
++			(int)leftDoubleClick, (int)leftClick, mouseLeftUpTime,
++			getMouseX(), getMouseY());
+ 	}
+ 
+ 	else if (gos_GetKeyStatus( KEY_LMOUSE ) == KEY_HELD /*code & 0x8000*/) // held
+@@ -844,6 +884,11 @@ void UserInput::render (void)						//Last thing rendered.  Draws Mouse.
+     //sebi, always NOT async mouse
+ 	//if (!mc2UseAsyncMouse)
+ 	{
++		static int ren_diag = 0;
++		if ((++ren_diag % 120) == 0) {
++			fprintf(stderr, "[UI] render drawMouse=%d mouseState=%d mx=%.1f my=%.1f\n",
++				(int)drawMouse, (int)mouseState, mouseXPosition, mouseYPosition);
++		}
+ 		if (drawMouse && mouseState != -1)
+ 		{
+ 			// figure out where to put the thing
 diff --git a/mclib/userinput.h b/mclib/userinput.h
-index 5723801..aaef028 100644
+index 5723801..2e15a30 100644
 --- a/mclib/userinput.h
 +++ b/mclib/userinput.h
 @@ -124,7 +124,7 @@ class MouseCursorData
@@ -539,6 +1462,57 @@ index 5723801..aaef028 100644
  		float frameLengths[MAX_MOUSE_STATES];
  
  		friend class UserInput;
+@@ -327,6 +327,10 @@ class UserInput
+ 			viewMulY = mulY;
+ 			viewAddX = addX;
+ 			viewAddY = addY;
++			extern float UserInput_viewMulX_diag;
++			extern float UserInput_viewMulY_diag;
++			UserInput_viewMulX_diag = mulX;
++			UserInput_viewMulY_diag = mulY;
+ 		}
+ 
+ 		//------------------------
+@@ -398,22 +402,34 @@ class UserInput
+ 
+ 		long getMouseX (void)
+ 		{
+-			return float2long(mouseXPosition * viewMulX);
++			float mul = viewMulX;
++			if (fabs(mul) < Stuff::SMALL)
++				mul = (float)Environment.screenWidth;
++			return float2long(mouseXPosition * mul);
+ 		}
+ 
+ 		long getMouseY (void)
+ 		{
+-			return float2long(mouseYPosition * viewMulY);
++			float mul = viewMulY;
++			if (fabs(mul) < Stuff::SMALL)
++				mul = (float)Environment.screenHeight;
++			return float2long(mouseYPosition * mul);
+ 		}
+ 
+ 		float realMouseX (void)
+ 		{
+-			return (mouseXPosition * viewMulX);
++			float mul = viewMulX;
++			if (fabs(mul) < Stuff::SMALL)
++				mul = (float)Environment.screenWidth;
++			return (mouseXPosition * mul);
+ 		}
+-		
++
+ 		float realMouseY (void)
+ 		{
+-			return (mouseYPosition * viewMulY);
++			float mul = viewMulY;
++			if (fabs(mul) < Stuff::SMALL)
++				mul = (float)Environment.screenHeight;
++			return (mouseYPosition * mul);
+ 		}
+ 		
+ 		void setMousePos (float x, float y)
 diff --git a/mclib/vfx_ellipse.cpp b/mclib/vfx_ellipse.cpp
 index ec00962..caa43a5 100644
 --- a/mclib/vfx_ellipse.cpp
@@ -561,3 +1535,115 @@ index ec00962..caa43a5 100644
  		return;
  	}
  
+diff --git a/shaders/gos_tex_vertex_lighted.frag b/shaders/gos_tex_vertex_lighted.frag
+index 2c0b5d3..14275e6 100644
+--- a/shaders/gos_tex_vertex_lighted.frag
++++ b/shaders/gos_tex_vertex_lighted.frag
+@@ -14,7 +14,6 @@ in PREC vec2 Texcoord;
+ in PREC vec4 VertexColor;
+ in PREC vec3 VertexLight;
+ in PREC vec3 WorldPos;
+-in PREC vec3 CameraPos;
+ 
+ layout (location=0) out PREC vec4 FragColor;
+ 
+@@ -23,7 +22,7 @@ uniform PREC vec4 fog_color;
+ 
+ void main(void)
+ {
+-    PREC vec4 c = vec4(1,1,1,1);//Color.bgra;
++    PREC vec4 c = VertexColor;
+     PREC vec4 tex_color = texture(tex1, Texcoord);
+     c *= tex_color;
+     
+@@ -38,13 +37,13 @@ void main(void)
+ #if ENABLE_VERTEX_LIGHTING
+ 	PREC vec3 lighting = VertexLight;
+ #else
+-    const int lights_index = int(light_offset_.x);
++    int lights_index = int(light_offset_.x);
+     PREC vec3 lighting = calc_light(lights_index, Normal, VertexLight);
+ #endif
+ 
+     c.xyz = c.xyz * lighting;
+ 
+-    c.xyz = apply_fog(c.xyz, WorldPos.xyz, CameraPos);
++    c.xyz = apply_fog(c.xyz, WorldPos.xyz, g_scene.cameraPos.xyz);
+ 
+ 	FragColor = vec4(c.xyz, c.a);
+ }
+diff --git a/shaders/gos_tex_vertex_lighted.vert b/shaders/gos_tex_vertex_lighted.vert
+index 359b04a..49cb499 100644
+--- a/shaders/gos_tex_vertex_lighted.vert
++++ b/shaders/gos_tex_vertex_lighted.vert
+@@ -9,7 +9,7 @@ layout(location = 1) in vec3 normal;
+ layout(location = 2) in vec4 aRGBLight;
+ layout(location = 3) in vec2 texcoord;
+ 
+-layout (binding = 1, std140) uniform mesh_data
++layout (std140) uniform mesh_data
+ { 
+   vec4 ambient;
+   vec4 diffuse;
+@@ -35,7 +35,6 @@ out vec2 Texcoord;
+ out vec4 VertexColor;
+ out vec3 VertexLight;
+ out vec3 WorldPos;
+-out vec3 CameraPos;
+ 
+ void main(void)
+ {
+@@ -69,7 +68,7 @@ void main(void)
+             vec3(0.0), vec3(0.0), vec3(0.0));
+ 
+ #if ENABLE_VERTEX_LIGHTING
+-    const int lights_index = int(light_offset_.x);
++    int lights_index = int(light_offset_.x);
+     VertexLight = calc_light(lights_index, Normal, base_light);
+ #else
+     VertexLight = base_light;
+diff --git a/shaders/include/lighting.hglsl b/shaders/include/lighting.hglsl
+index caf5dba..91a51db 100644
+--- a/shaders/include/lighting.hglsl
++++ b/shaders/include/lighting.hglsl
+@@ -22,7 +22,7 @@ struct ObjectLights {
+     ivec4 numLights;
+ };
+ 
+-layout (binding = LIGHT_DATA_ATTACHMENT_SLOT, std140) uniform LightsData
++layout (std140) uniform LightsData
+ {
+     ObjectLights light[32];
+ };
+@@ -97,7 +97,7 @@ vec3 get_base_light(
+     {
+ 
+     }
+-    else if ((start_v_light & 0x00ffffff)!=0)		//Some other kind of light, just add it in.
++    else if ((start_v_light & 0x00ffffffu)!=0)		//Some other kind of light, just add it in.
+     {
+         if (!lightsOut)
+         {
+diff --git a/shaders/include/scene.hglsl b/shaders/include/scene.hglsl
+index dc7a278..ec20018 100644
+--- a/shaders/include/scene.hglsl
++++ b/shaders/include/scene.hglsl
+@@ -13,15 +13,15 @@ struct SceneData_t {
+    vec4 baseVertexColor;
+ };
+ 
+-layout (binding = SCENE_DATA_ATTACHMENT_SLOT, std140) uniform SceneData
++layout (std140) uniform SceneData
+ {
+     SceneData_t g_scene;
+ };
+ 
+ float calc_fog_factor(in vec3 wpos, in vec3 cam_pos)
+ {
+-    const float fogStart = g_scene.fogStart;
+-    const float fogFull = g_scene.fogFull;
++    float fogStart = g_scene.fogStart;
++    float fogFull = g_scene.fogFull;
+ 
+     float eyeDistance = length(wpos - cam_pos.xyz);
+     float haze_factor = 
