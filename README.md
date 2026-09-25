@@ -1,12 +1,18 @@
 # MechCommander 2 for macOS (Apple Silicon)
 
-![Mech Lab at 1920x1200](docs/screenshots/mech-lab.png)
-
 A native arm64 port of MechCommander 2: the open-source
 [alariq/mc2](https://github.com/alariq/mc2) SDL/OpenGL engine built and run
 on macOS, with this machine's changes carried as
 [`native/macos.patch`](native/macos.patch). The port uses SDL2/OpenGL input
 and rendering, bypassing the original DirectDraw/Win32 input path entirely.
+
+## Screenshots
+
+![Gameplay at 800x600](docs/screenshots/gameplay.png)
+
+![Mech Lab at 1920x1200](docs/screenshots/mech-lab.png)
+
+Gameplay video: [docs/screenshots/gameplay.mp4](docs/screenshots/gameplay.mp4)
 
 ## Quick start
 
@@ -26,18 +32,33 @@ assets.
 Known defects and their fixes are tracked in
 [docs/defects](docs/defects/README.md).
 
+## Distributable app
+
+```sh
+./build-dist-macos.sh
+```
+
+Produces `dist/MechCommander2.app` (plus a shareable zip of the same). All
+Homebrew libraries — including the SDL3 library that Homebrew's SDL2-compat
+shim loads at runtime — are bundled into the app bundle and ad-hoc signed,
+so it runs on Apple Silicon Macs without Homebrew. Game data is not
+included: on first launch the app downloads it from the
+[alariq/mc2 GitHub release](https://github.com/alariq/mc2/releases) (URL in
+`Contents/Resources/data-url.txt`, overridable with `MC2_DATA_URL`) into
+`~/Library/Application Support/MechCommander2/`. The build also emits
+`dist/mc2-data.tar.gz`, a processed data archive for hosting your own
+download (`SKIP_DATA_ARCHIVE=1` skips it).
+
 ## Repository layout
 
 - `native/mc2` — upstream engine submodule; macOS changes live in the patch,
   not in the submodule (pinned to the commit the patch applies to)
 - `native/macos.patch` — input, cursor, HiDPI, movie, and resolution fixes
+- `native/icon/` — app icon sources (`AppIcon.iconset`)
 - `build-native-macos.sh` / `run-native-macos.sh` — build and launch
+- `build-dist-macos.sh` — bundle the relocatable `.app` and data archive
 - `docs/defects/` — tracked bugs and their fixes
   ([index](docs/defects/README.md))
-
-Earlier Wine/CrossOver experiments for this workspace (including the
-launcher, test matrix, and their instructions) were removed and remain
-recoverable from git history.
 
 ## Legal
 
