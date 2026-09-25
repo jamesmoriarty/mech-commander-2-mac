@@ -22,16 +22,50 @@ jobs:
       - name: Install build dependencies
         run: make deps
 
+      - name: Import Developer ID certificate
+        # No-ops (leaves ad-hoc signing) unless the cert secrets are set.
+        env:
+          P12_B64: ${{ secrets.MC2_SIGN_P12_BASE64 }}
+          P12_PWD: ${{ secrets.MC2_SIGN_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${P12_B64:-}" ]]; then
+            echo "No signing cert secret; build will be ad-hoc signed."
+            exit 0
+          fi
+          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/dev_id.p12"
+          security create-keychain -p ci "$RUNNER_TEMP/build.keychain"
+          security default-keychain -s "$RUNNER_TEMP/build.keychain"
+          security unlock-keychain -p ci "$RUNNER_TEMP/build.keychain"
+          security import dev_id.p12 -k "$RUNNER_TEMP/build.keychain" \
+            -P "$P12_PWD" -T /usr/bin/codesign -A
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k ci "$RUNNER_TEMP/build.keychain"
+          rm dev_id.p12
+          security find-identity -v -p codesigning | grep 'Developer ID Application'
+
       - name: Build engine and process game data
         run: make native
 
       - name: Build app bundle and zip
         # SKIP_DATA_ARCHIVE path: mc2-data.tar.gz holds Microsoft game assets
         # and must never be uploaded to artifacts or releases.
-        run: make dist-no-data
+        env:
+          MC2_NOTARY_API_KEY_B64: ${{ secrets.MC2_NOTARY_API_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${MC2_NOTARY_API_KEY_B64:-}" ]]; then
+            echo "$MC2_NOTARY_API_KEY_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+            export MC2_NOTARY_KEY_FILE="$RUNNER_TEMP/AuthKey.p8"
+            export MC2_NOTARY_KEY_ID="${{ secrets.MC2_NOTARY_KEY_ID }}"
+            export MC2_NOTARY_ISSUER_ID="${{ secrets.MC2_NOTARY_ISSUER_ID }}"
+          fi
+          SKIP_DATA_ARCHIVE=1 ./scripts/build-dist-macos.sh
 
       - name: Verify bundle signature
-        run: codesign --verify --strict dist/MechCommander2.app
+        run: |
+          codesign --verify --strict --deep dist/MechCommander2.app
+          spctl -a -vv -t exec dist/MechCommander2.app 2>&1 || true
 
       - name: Upload engine package
         uses: actions/upload-artifact@v4

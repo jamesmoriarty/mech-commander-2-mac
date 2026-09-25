@@ -87,6 +87,27 @@ index 986012e..14c6cb2 100644
      }
  }
  
+diff --git a/GameOS/gameos/gameos_res.cpp b/GameOS/gameos/gameos_res.cpp
+index f9ce797..8231e24 100644
+--- a/GameOS/gameos/gameos_res.cpp
++++ b/GameOS/gameos/gameos_res.cpp
+@@ -23,9 +23,15 @@ static const char* DL_GetError() {
+ }
+ #else
+ #include <dlfcn.h>
++#include <limits.h>
+ 
+ static void* DL_Open(const char* name) {
+-    return dlopen(name, RTLD_LAZY);
++    // Hardened runtime rejects relative dlopen paths; canonicalize to absolute.
++    char buf[PATH_MAX];
++    const char* path = name;
++    if (name && name[0] != '/' && realpath(name, buf))
++        path = buf;
++    return dlopen(path, RTLD_LAZY);
+ }
+ static void DL_Close(void* handle) {
+ 	dlclose(handle);
 diff --git a/GameOS/gameos/gameosmain.cpp b/GameOS/gameos/gameosmain.cpp
 index b0ef581..c43c791 100644
 --- a/GameOS/gameos/gameosmain.cpp

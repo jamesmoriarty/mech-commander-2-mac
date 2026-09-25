@@ -19,7 +19,7 @@ BIN_DIR="${CONTENTS_DIR}/MacOS"
 LIB_DIR="${CONTENTS_DIR}/lib"
 RES_DIR="${CONTENTS_DIR}/Resources"
 ENGINE="${BIN_DIR}/mc2"
-LAUNCHER="${BIN_DIR}/MechCommander2"
+LAUNCHER="${RES_DIR}/MechCommander2.sh"
 ZIP_NAME="MechCommander2-mac.zip"
 STAGE_DIR="${DIST_DIR}/data-stage"
 DATA_ARCHIVE="${DIST_DIR}/mc2-data.tar.gz"
@@ -187,9 +187,9 @@ cat > "$LAUNCHER" <<'EOF'
 # MechCommander 2 launcher: fetches game data on first run, then starts the game.
 set -euo pipefail
 
-BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONTENTS_DIR="$(dirname "$BIN_DIR")"
-RES_DIR="$CONTENTS_DIR/Resources"
+RES_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONTENTS_DIR="$(dirname "$RES_DIR")"
+BIN_DIR="$CONTENTS_DIR/MacOS"
 ENGINE="$BIN_DIR/mc2"
 
 DATA_DIR="${MC2_DATA_DIR:-$HOME/Library/Application Support/MechCommander2/game-data}"
@@ -303,6 +303,9 @@ exec "$ENGINE" "$@"
 EOF
 chmod +x "$LAUNCHER"
 
+# Mach-O main executable (notarization rejects script mains).
+cc -O2 -Wall -o "$BIN_DIR/MechCommander2" "${REPO_DIR}/native/launcher.c"
+
 cat > "$RES_DIR/README.md" <<'EOF'
 # MechCommander 2 for macOS (Apple Silicon)
 
@@ -357,14 +360,53 @@ if [[ -n "$leak" ]]; then
     exit 1
 fi
 
-for file in "$ENGINE" "$LIB_DIR"/*; do
-    codesign --force --sign - "$file" >/dev/null 2>&1
+# Signing: use MC2_SIGN_IDENTITY ("Developer ID Application: ...") when
+# given; otherwise auto-detect one from the keychain, else sign ad-hoc.
+if [[ -z "${MC2_SIGN_IDENTITY:-}" ]]; then
+    MC2_SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+        | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+fi
+if [[ -n "$MC2_SIGN_IDENTITY" ]]; then
+    printf 'Signing with: %s (hardened runtime, timestamped)\n' "$MC2_SIGN_IDENTITY"
+    CS_ARGS=(--options runtime --timestamp --sign "$MC2_SIGN_IDENTITY")
+else
+    printf 'No Developer ID identity found; ad-hoc signing (not notarizable).\n'
+    CS_ARGS=(--sign -)
+fi
+
+# Nested code first: dylibs, helpers, engine, launcher stub, then the bundle.
+for file in "$LIB_DIR"/* "$BIN_DIR/Mc2Downloader" "$ENGINE" "$BIN_DIR/MechCommander2"; do
+    [[ -f "$file" ]] || continue
+    codesign --force "${CS_ARGS[@]}" "$file"
 done
-[[ -f "$BIN_DIR/Mc2Downloader" ]] && codesign --force --sign - "$BIN_DIR/Mc2Downloader" >/dev/null 2>&1
-codesign --force --sign - "$APP_DIR" >/dev/null 2>&1
+codesign --force "${CS_ARGS[@]}" "$APP_DIR"
+codesign --verify --deep --strict "$APP_DIR" && printf 'Signature verified.\n'
 
 rm -f "${DIST_DIR}/${ZIP_NAME}"
-( cd "$DIST_DIR" && zip -rqy "$ZIP_NAME" "$APP_NAME" )
+( cd "$DIST_DIR" && zip -qryX "$ZIP_NAME" "$APP_NAME" -x '*/.DS_Store' )
+
+# Notarization (requires a Developer ID build above).
+if [[ -n "${MC2_NOTARY_PROFILE:-}" || -n "${MC2_NOTARY_KEY_FILE:-}" ]]; then
+    if [[ -z "$MC2_SIGN_IDENTITY" ]]; then
+        printf 'ERROR: notarization needs a Developer ID signature.\n' >&2
+        exit 1
+    fi
+    if [[ -n "${MC2_NOTARY_PROFILE:-}" ]]; then
+        NOTARY_ARGS=(--keychain-profile "$MC2_NOTARY_PROFILE")
+    else
+        NOTARY_ARGS=(--key "$MC2_NOTARY_KEY_FILE" --key-id "$MC2_NOTARY_KEY_ID")
+        [[ -n "${MC2_NOTARY_ISSUER_ID:-}" ]] && NOTARY_ARGS+=(--issuer "$MC2_NOTARY_ISSUER_ID")
+    fi
+    printf 'Notarizing (this uploads %s to Apple)...\n' "$ZIP_NAME"
+    xcrun notarytool submit "${DIST_DIR}/${ZIP_NAME}" "${NOTARY_ARGS[@]}" --wait
+    xcrun stapler staple "$APP_DIR"
+    rm -f "${DIST_DIR}/${ZIP_NAME}"
+    ( cd "$DIST_DIR" && zip -qryX "$ZIP_NAME" "$APP_NAME" -x '*/.DS_Store' )
+    printf 'Notarized and stapled.\n'
+elif [[ -n "$MC2_SIGN_IDENTITY" ]]; then
+    printf 'NOTE: signed with Developer ID but NOT notarized.\n'
+    printf '      Set MC2_NOTARY_PROFILE or MC2_NOTARY_KEY_FILE to notarize.\n'
+fi
 
 printf '\nBuild complete:\n'
 printf '  App bundle (run this):            %s\n' "$APP_DIR"

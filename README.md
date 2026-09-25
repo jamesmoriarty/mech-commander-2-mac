@@ -47,14 +47,26 @@ data archive) and publishes `MechCommander2-mac.zip` as a release asset:
 
 Produces `dist/MechCommander2.app` (plus a shareable zip of the same). All
 Homebrew libraries — including the SDL3 library that Homebrew's SDL2-compat
-shim loads at runtime — are bundled into the app bundle and ad-hoc signed,
-so it runs on Apple Silicon Macs without Homebrew. Game data is not
+shim loads at runtime — are bundled into the app bundle, so it runs on
+Apple Silicon Macs without Homebrew. Game data is not
 included: on first launch the app downloads it from the
 [alariq/mc2 GitHub release](https://github.com/alariq/mc2/releases) (URL in
 `Contents/Resources/data-url.txt`, overridable with `MC2_DATA_URL`) into
 `~/Library/Application Support/MechCommander2/`. The build also emits
 `dist/mc2-data.tar.gz`, a processed data archive for hosting your own
 download (`SKIP_DATA_ARCHIVE=1` skips it).
+
+### Signing and notarization
+
+If a `Developer ID Application` certificate is available (in your keychain
+locally, or imported on CI from secrets), the build signs the whole bundle
+with it using the hardened runtime + secure timestamp; otherwise it falls
+back to ad-hoc signing. To produce a notarized, Gatekeeper-clean build, set
+these repo secrets: `MC2_SIGN_P12_BASE64` + `MC2_SIGN_P12_PASSWORD` (the
+`.p12`), and for notarization `MC2_NOTARY_API_KEY_B64` + `MC2_NOTARY_KEY_ID`
+(+ optional `MC2_NOTARY_ISSUER_ID`). Locally you can instead store notarytool
+credentials and run `MC2_NOTARY_PROFILE=<name> ./scripts/build-dist-macos.sh`.
+Notarized builds are stapled and re-zipped automatically.
 
 ## Repository layout
 
