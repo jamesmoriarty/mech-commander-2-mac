@@ -1,10 +1,26 @@
 # MechCommander 2 for macOS (Apple Silicon)
 
 A native arm64 port of MechCommander 2: the open-source
-[alariq/mc2](https://github.com/alariq/mc2) SDL/OpenGL engine built and run
-on macOS, with this machine's changes carried as
-[`native/macos.patch`](native/macos.patch). The port uses SDL2/OpenGL input
-and rendering, bypassing the original DirectDraw/Win32 input path entirely.
+[alariq/mc2](https://github.com/alariq/mc2) SDL/OpenGL engine, built and run
+on macOS. macOS fixes are carried as [`native/macos.patch`](native/macos.patch)
+rather than committed into the engine submodule. The port renders through
+SDL2/OpenGL, bypassing the original DirectDraw/Win32 path entirely.
+
+## Download & play
+
+Grab the signed, notarized build from the
+[latest release](https://github.com/jamesmoriarty/mech-commander-2-mac/releases/latest):
+
+1. Download and unzip `MechCommander2-mac.zip`.
+2. Double-click `MechCommander2.app`. On first run it downloads the game
+   data (~630 MB) from the
+   [alariq/mc2 release](https://github.com/alariq/mc2/releases) into
+   `~/Library/Application Support/MechCommander2/`.
+
+The app bundles every required library (no Homebrew needed) and is signed
+with a Developer ID + notarized by Apple, so Gatekeeper opens it without
+warnings. The game data is Microsoft's, not redistributed here — see
+[Legal](#legal).
 
 ## Screenshots
 
@@ -14,19 +30,19 @@ and rendering, bypassing the original DirectDraw/Win32 input path entirely.
 
 Gameplay video: [docs/screenshots/gameplay.mp4](docs/screenshots/gameplay.mp4)
 
-## Quick start
+## Building from source
 
 ```sh
 git submodule update --init
-make deps      # Homebrew build dependencies (see below)
-make native
-make run
+make deps      # install Homebrew build dependencies
+make native    # build the engine + process game data
+make run       # launch
 ```
 
-Requires CMake, git, make, and ffmpeg, plus the Homebrew formulas
-`sdl2-compat`, `sdl2_mixer`, `sdl2_ttf`, and `glew` (`make deps` installs
-them; the build script checks and lists anything missing; ffmpeg converts
-the intro movie videos). The build script clones
+Requirements: CMake, git, make, and ffmpeg, plus the Homebrew formulas
+`sdl2-compat`, `sdl2_mixer`, `sdl2_ttf`, and `glew`. `make deps` installs
+them, and the build script checks and names anything missing (ffmpeg converts
+the intro movie videos). The build clones
 [mc2srcdata](https://github.com/alariq/mc2srcdata), applies
 `native/macos.patch`, builds the engine and data tools, and processes the
 runtime data locally — it does not replace or redistribute Microsoft's game
@@ -35,60 +51,63 @@ assets.
 Known defects and their fixes are tracked in
 [docs/defects](docs/defects/README.md).
 
-## Distributable app
+## Packaging a release
 
 ```sh
-make dist
+make dist            # → dist/MechCommander2.app, .zip, and mc2-data.tar.gz
+make dist-no-data    # same, but skip the game-data archive
 ```
 
-Pushing a `v*` tag runs the same build on GitHub Actions (without the local
-data archive) and publishes `MechCommander2-mac.zip` as a release asset:
-`git tag v0.1.0-mac && git push origin v0.1.0-mac`.
+The app bundles all Homebrew libraries — including the SDL3 library that
+Homebrew's SDL2-compat shim loads at runtime — so it runs on Apple Silicon
+Macs without a developer environment. Game data is fetched on first launch
+from the URL in `Contents/Resources/data-url.txt` (override with
+`MC2_DATA_URL`, or point it at your own `mc2-data.tar.gz`).
 
-Produces `dist/MechCommander2.app` (plus a shareable zip of the same). All
-Homebrew libraries — including the SDL3 library that Homebrew's SDL2-compat
-shim loads at runtime — are bundled into the app bundle, so it runs on
-Apple Silicon Macs without Homebrew. Game data is not
-included: on first launch the app downloads it from the
-[alariq/mc2 GitHub release](https://github.com/alariq/mc2/releases) (URL in
-`Contents/Resources/data-url.txt`, overridable with `MC2_DATA_URL`) into
-`~/Library/Application Support/MechCommander2/`. The build also emits
-`dist/mc2-data.tar.gz`, a processed data archive for hosting your own
-download (`SKIP_DATA_ARCHIVE=1` skips it).
+Pushing a `v*` tag runs the same package build on GitHub Actions and uploads
+`MechCommander2-mac.zip` to a GitHub release:
 
-### Signing and notarization
+```sh
+git tag -a v0.1.2-mac -m "..." && git push origin v0.1.2-mac
+```
 
-If a `Developer ID Application` certificate is available (in your keychain
-locally, or imported on CI from secrets), the build signs the whole bundle
-with it using the hardened runtime + secure timestamp; otherwise it falls
-back to ad-hoc signing. To produce a notarized, Gatekeeper-clean build, set
-these repo secrets: `MC2_SIGN_P12_BASE64` + `MC2_SIGN_P12_PASSWORD` (the
-`.p12`), and for notarization `MC2_NOTARY_API_KEY_B64` + `MC2_NOTARY_KEY_ID`
-(+ optional `MC2_NOTARY_ISSUER_ID`). Locally you can instead store notarytool
-credentials and run `MC2_NOTARY_PROFILE=<name> ./scripts/build-dist-macos.sh`.
+The CI job never builds or uploads `mc2-data.tar.gz` (Microsoft assets stay
+out of releases).
+
+### Signing & notarization
+
+When a `Developer ID Application` certificate is present — in the local
+keychain, or imported on CI from the `MC2_SIGN_P12_BASE64` /
+`MC2_SIGN_P12_PASSWORD` secrets — the build signs the whole bundle (hardened
+runtime + secure timestamp); otherwise it falls back to ad-hoc signing. To
+also notarize (removing all Gatekeeper prompts), provide Apple notarytool
+credentials: `MC2_NOTARY_API_KEY_B64`, `MC2_NOTARY_KEY_ID`, and
+`MC2_NOTARY_ISSUER_ID` on CI, or `MC2_NOTARY_PROFILE=<name>` locally.
 Notarized builds are stapled and re-zipped automatically.
 
 ## Repository layout
 
-- `native/mc2` — upstream engine submodule; macOS changes live in the patch,
-  not in the submodule (pinned to the commit the patch applies to)
+- `native/mc2` — upstream engine submodule (pinned to the commit the patch
+  applies to; macOS changes live in the patch, not the submodule)
 - `native/macos.patch` — input, cursor, HiDPI, movie, and resolution fixes
 - `native/icon/` — app icon sources (`AppIcon.iconset`)
+- `native/launcher/` — the Swift bundle launcher + download progress UI
 - `Makefile` — convenience targets (`make help`) delegating to `scripts/`
 - `scripts/build-native-macos.sh` / `scripts/run-native-macos.sh` — build and
   launch
-- `scripts/build-dist-macos.sh` — bundle the relocatable `.app` and data
-  archive
+- `scripts/build-dist-macos.sh` — build the relocatable `.app` + archives
 - `docs/defects/` — tracked bugs and their fixes
   ([index](docs/defects/README.md))
 
 ## Legal
 
-Use game files you are entitled to use. Keep the original game data local;
-the open-source engine does not grant redistribution rights to Microsoft's
-game assets.
+The engine and `native/macos.patch` are GPL-3.0 (see
+[LICENSE](LICENSE)). MechCommander 2 game data is Microsoft's — use files you
+are entitled to; this project neither bundles nor redistributes it.
 
 ## Sources
 
+- Upstream engine: <https://github.com/alariq/mc2>
+- Game data source: <https://github.com/alariq/mc2srcdata>
 - Native engine build notes:
   <https://github.com/kevinctracy/mc2/blob/master/BUILD-MAC.md>
