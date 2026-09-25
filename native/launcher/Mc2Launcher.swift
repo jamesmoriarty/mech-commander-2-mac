@@ -1,9 +1,38 @@
-// Mc2Downloader: tiny AppKit progress window for the MechCommander 2
-// first-run game-data download. Usage:
-//   Mc2Downloader --url <url> --out <file>
-// Exit codes: 0 ok, 1 error (message on stderr), 2 user cancelled.
+// MechCommander 2 bundle launcher (Contents/MacOS/MechCommander2).
+//
+// Default mode: a Mach-O main executable that execs the real bash launcher
+// in ../Resources/MechCommander2.sh (notarization requires a Mach-O main
+// executable, not a script).
+//
+// --download mode: shows an AppKit progress window while downloading a
+// file.   Usage: MechCommander2 --download --url <url> --out <file>
+//   Exit codes: 0 ok, 1 error (message on stderr), 2 user cancelled.
 
 import Cocoa
+import Darwin
+
+// MARK: - Launcher stub
+
+func execShellLauncher() -> Never {
+    var buf = [CChar](repeating: 0, count: 4096)
+    var size = UInt32(buf.count)
+    guard _NSGetExecutablePath(&buf, &size) == 0 else {
+        FileHandle.standardError.write(Data("launcher: cannot resolve own path\n".utf8))
+        exit(127)
+    }
+    let exePath = String(cString: buf)
+    let dir = (exePath as NSString).deletingLastPathComponent
+    let script = ((dir as NSString).appendingPathComponent("../Resources/MechCommander2.sh")
+                  as NSString).standardizingPath
+
+    let cArgs: [UnsafeMutablePointer<CChar>?] =
+        ([script] + Array(CommandLine.arguments.dropFirst())).map { strdup($0) } + [nil]
+    execv(script, cArgs)
+    perror("launcher: execv(\(script)) failed")
+    exit(127)
+}
+
+// MARK: - Download window
 
 final class Downloader: NSObject, NSApplicationDelegate, URLSessionDelegate,
                         URLSessionTaskDelegate, URLSessionDownloadDelegate {
@@ -134,17 +163,25 @@ final class Downloader: NSObject, NSApplicationDelegate, URLSessionDelegate,
     }
 }
 
-let args = CommandLine.arguments
-guard let u = args.firstIndex(of: "--url"), u + 1 < args.count,
-      let o = args.firstIndex(of: "--out"), o + 1 < args.count,
-      let url = URL(string: args[u + 1]) else {
-    FileHandle.standardError.write(Data("usage: Mc2Downloader --url <url> --out <file>\n".utf8))
-    exit(64)
+func runDownload(args: [String]) -> Never {
+    guard let u = args.firstIndex(of: "--url"), u + 1 < args.count,
+          let o = args.firstIndex(of: "--out"), o + 1 < args.count,
+          let url = URL(string: args[u + 1]) else {
+        FileHandle.standardError.write(Data("usage: MechCommander2 --download --url <url> --out <file>\n".utf8))
+        exit(64)
+    }
+    let out = URL(fileURLWithPath: args[o + 1])
+    try? FileManager.default.createDirectory(at: out.deletingLastPathComponent(),
+                                             withIntermediateDirectories: true)
+    let app = NSApplication.shared
+    let delegate = Downloader(url: url, out: out)
+    app.delegate = delegate
+    app.run()
+    exit(0)
 }
-let out = URL(fileURLWithPath: args[o + 1])
-try? FileManager.default.createDirectory(at: out.deletingLastPathComponent(),
-                                         withIntermediateDirectories: true)
-let app = NSApplication.shared
-let delegate = Downloader(url: url, out: out)
-app.delegate = delegate
-app.run()
+
+let arguments = CommandLine.arguments
+if arguments.contains("--download") {
+    runDownload(args: Array(arguments.dropFirst(arguments.firstIndex(of: "--download")! + 1)))
+}
+execShellLauncher()

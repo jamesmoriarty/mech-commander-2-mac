@@ -31,7 +31,7 @@ need_command() {
     }
 }
 
-for command in otool install_name_tool codesign rsync tar zip curl iconutil; do
+for command in otool install_name_tool codesign rsync tar zip curl iconutil swiftc; do
     need_command "$command"
 done
 
@@ -117,12 +117,9 @@ bundle_dylibs() {
 
 bundle_dylibs
 
-if command -v swiftc >/dev/null 2>&1; then
-    printf 'Building GUI downloader...\n'
-    swiftc -O -o "$BIN_DIR/Mc2Downloader" "${REPO_DIR}/native/downloader/Mc2Downloader.swift"
-else
-    printf 'WARNING: swiftc not found; Finder downloads will show no progress window\n' >&2
-fi
+# Mach-O bundle launcher (execs the bash launcher; doubles as the
+# --download progress window used by that script).
+swiftc -O -o "$BIN_DIR/MechCommander2" "${REPO_DIR}/native/launcher/Mc2Launcher.swift"
 
 if otool -l "$ENGINE" | grep -q 'path /opt/homebrew'; then
     install_name_tool -delete_rpath /opt/homebrew/lib "$ENGINE" 2>/dev/null
@@ -251,10 +248,10 @@ if [[ ! -f "$MARKER" ]]; then
     tmp="$DATA_DIR/.mc2-data-tmp"
     rm -rf "$partial" "$tmp"
     printf 'Downloading game data...\n' >&2
-    downloader="$BIN_DIR/Mc2Downloader"
+    downloader="$BIN_DIR/MechCommander2"
     rc=0
     if [[ "$gui" -eq 1 && -x "$downloader" ]]; then
-        "$downloader" --url "$url" --out "$partial" || rc=$?
+        "$downloader" --download --url "$url" --out "$partial" || rc=$?
     else
         curl -fL --progress-bar -o "$partial" "$url" || rc=1
     fi
@@ -302,9 +299,6 @@ cd "$DATA_DIR"
 exec "$ENGINE" "$@"
 EOF
 chmod +x "$LAUNCHER"
-
-# Mach-O main executable (notarization rejects script mains).
-cc -O2 -Wall -o "$BIN_DIR/MechCommander2" "${REPO_DIR}/native/launcher.c"
 
 cat > "$RES_DIR/README.md" <<'EOF'
 # MechCommander 2 for macOS (Apple Silicon)
@@ -375,7 +369,7 @@ else
 fi
 
 # Nested code first: dylibs, helpers, engine, launcher stub, then the bundle.
-for file in "$LIB_DIR"/* "$BIN_DIR/Mc2Downloader" "$ENGINE" "$BIN_DIR/MechCommander2"; do
+for file in "$LIB_DIR"/* "$ENGINE" "$BIN_DIR/MechCommander2"; do
     [[ -f "$file" ]] || continue
     codesign --force "${CS_ARGS[@]}" "$file"
 done
