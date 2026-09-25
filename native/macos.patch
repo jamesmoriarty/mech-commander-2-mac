@@ -644,7 +644,7 @@ index 692eadc..53e0cda 100644
  #include"logisticsdata.h"
  #include"mechlabscreen.h"
 diff --git a/code/controlgui.cpp b/code/controlgui.cpp
-index 01fc0bd..18394d5 100644
+index 01fc0bd..75d2c24 100644
 --- a/code/controlgui.cpp
 +++ b/code/controlgui.cpp
 @@ -34,7 +34,7 @@ controlGui.cpp			: Implementation of the controlGui component.
@@ -656,8 +656,96 @@ index 01fc0bd..18394d5 100644
  
  #include"chatwindow.h"
  
+@@ -2632,31 +2632,29 @@ void ControlGui::initRects( FitIniFile& file )
+ 
+ void ControlGui::swapResolutions( int resolutionX, int resolutionY )
+ {
++	static const int layoutWidths[] = { 640, 800, 1024, 1280, 1600, 1920 };
++	static const int layoutBases[]  = { 480, 600, 768, 768, 768, 768 };
++	const int numLayouts = sizeof(layoutWidths) / sizeof(layoutWidths[0]);
++
++	int layout = 0;
++	int bestDist = 0x7fffffff;
++	for ( int i = 0; i < numLayouts; i++ )
++	{
++		int dist = abs( resolutionX - layoutWidths[i] );
++		if ( dist < bestDist )
++		{
++			bestDist = dist;
++			layout = i;
++		}
++	}
++
+ 	FitIniFile buttonFile;
+ 	char path[256];
+ 	strcpy( path, artPath );
+ 	
+ 	char fileName[32];
++	sprintf( fileName, "buttonlayout%d.fit", layoutWidths[layout] );
+ 
+-    int y_correction = 0;
+-    int x_correction = 0;
+-
+-	if ( resolutionX == 1920) {
+-		strcpy( fileName, "buttonlayout1920.fit" );
+-    } else if ( resolutionX == 1600) {
+-		strcpy( fileName, "buttonlayout1600.fit" ); 
+-    } else if ( resolutionX == 1280) {
+-		strcpy( fileName, "buttonlayout1280.fit" ); 
+-    } else if ( resolutionX == 1024) {
+-		strcpy( fileName, "buttonlayout1024.fit" ); 
+-    } else if ( resolutionX == 800 ) {
+-		strcpy( fileName, "buttonlayout800.fit" );
+-    } else if ( resolutionX == 640 ) {
+-		strcpy( fileName, "buttonlayout640.fit" );
+-    } else {
+-		strcpy( fileName, "buttonlayout1920.fit" );
+-    }
+-	
+ 	strcat( path, fileName );
+ 	if ( NO_ERR != buttonFile.open( path ) )
+ 	{
+@@ -2683,21 +2681,8 @@ void ControlGui::swapResolutions( int resolutionX, int resolutionY )
+ 		hiResOffsetX = hiResOffsetY = 0;
+ 	}
+ 
+-	if ( resolutionX == 1920) {
+-        y_correction = resolutionY - (768 + hiResOffsetY);
+-    } else if ( resolutionX == 1600) {
+-        y_correction = resolutionY - (768 + hiResOffsetY);
+-    } else if ( resolutionX == 1280) {
+-        y_correction = resolutionY - (768 + hiResOffsetY);
+-    } else if ( resolutionX == 1024) {
+-        y_correction = resolutionY - (768 + hiResOffsetY);
+-    } else if ( resolutionX == 800 ) {
+-        y_correction = resolutionY - (600 + hiResOffsetY);
+-    } else if ( resolutionX == 640 ) {
+-        y_correction = resolutionY - (480 + hiResOffsetY);
+-    } else {
+-        y_correction = resolutionY - (768 + hiResOffsetY);
+-    }
++	int y_correction = resolutionY - (layoutBases[layout] + hiResOffsetY);
++    int x_correction = 0;
+ 	
+     // add corrections
+ 	hiResOffsetY += y_correction;
+diff --git a/code/keyboardref.cpp b/code/keyboardref.cpp
+index c1e315a..f5c6c16 100644
+--- a/code/keyboardref.cpp
++++ b/code/keyboardref.cpp
+@@ -38,8 +38,8 @@ int KeyboardRef::init()
+ 
+ 
+     //sebi:
+-    const int resolutions[] = {     640,    1024,       1280,       1600,       1920};
+-    const char* const str_resolutions[] = { "_640", "_1024",    "_1280",    "_1600",    "_1920"};
++    const int resolutions[] = {     640,    800,    1024,       1280,       1600,       1920};
++    const char* const str_resolutions[] = { "_640", "_800", "_1024",    "_1280",    "_1600",    "_1920"};
+     bool b_search_for_best_resolution = true;
+     int suitable_res = 0;
+ 
 diff --git a/code/loadscreen.cpp b/code/loadscreen.cpp
-index 1cc1007..4750c99 100644
+index 1cc1007..73b226c 100644
 --- a/code/loadscreen.cpp
 +++ b/code/loadscreen.cpp
 @@ -24,6 +24,8 @@ struct DDSURFACEDESC2 {
@@ -669,6 +757,17 @@ index 1cc1007..4750c99 100644
  long LoadScreen::xProgressLoc = 0;
  long LoadScreen::yProgressLoc = 0;
  long LoadScreen::xWaitLoc = 0;
+@@ -122,8 +124,8 @@ void LoadScreenWrapper::changeRes()
+     */
+ 
+     //sebi:
+-    const int resolutions[] = {     640,    1024,       1280,       1600,       1920};
+-    const char* const str_resolutions[] = { "_640", "_1024",    "_1280",    "_1600",    "_1920"};
++    const int resolutions[] = {     640,    800,    1024,       1280,       1600,       1920};
++    const char* const str_resolutions[] = { "_640", "", "_1024",    "_1280",    "_1600",    "_1920"};
+     bool b_search_for_best_resolution = true;
+     int suitable_res = 0;
+ 
 @@ -505,6 +507,13 @@ void LoadScreen::update()
  	else
  	{
@@ -949,6 +1048,106 @@ index 2d93774..1116af9 100644
  	
  	if (animationRunning)
  	{
+diff --git a/code/optionsarea.cpp b/code/optionsarea.cpp
+index 65ecbce..f9d5ec6 100644
+--- a/code/optionsarea.cpp
++++ b/code/optionsarea.cpp
+@@ -149,39 +149,20 @@ void OptionsXScreen::init(FitIniFile* file)
+ 
+ 	}
+ 
++	// centers the 800x660 design space:
+ 	// 640: offset x = -80, y = -90
+-	// 800: offset none
+-	// 1024: offset x = 113, y = 54
++	// 1024: offset x = 112, y = 54
+ 	// 1280: offset x = 240, y = 182
+ 	// 1600: offset x = 400, y = 270
++	// 1920: offset x = 560, y = 270
+ 
+ 	long xOffset = 0;
+ 	long yOffset = 0;
+ 
+-	switch (Environment.screenWidth)
++	if ( Environment.screenWidth != 800 )
+ 	{
+-	case 640:
+-		xOffset = -80;
+-		yOffset = -90;
+-		break;
+-
+-	case 1024:
+-		xOffset = 13;
+-		yOffset = 54;
+-		break;
+-	
+-	case 1280:
+-		xOffset = 240;
+-		yOffset = 182;
+-		break;
+-	
+-	case 1600:
+-		xOffset = 400;
+-		yOffset = 270;
+-		break;
+-
+-
+-
++		xOffset = ( Environment.screenWidth - 800 ) / 2;
++		yOffset = ( Environment.screenHeight - 660 ) / 2;
+ 	}
+ 
+ 	move( xOffset, yOffset );
+@@ -386,8 +367,21 @@ void OptionsGraphics::init(long xOffset, long yOffset)
+ 	resolutionList.move( xOffset, yOffset );
+ 	resolutionList.ListBox().setOrange( true );
+ 
+-    const int displayIndex = gos_GetWindowDisplayIndex();
+-    const int num_modes = gos_GetNumDisplayModes(displayIndex);
++    const ResModes classicModes[] = {
++        {  640,  480, 16 },
++        {  640,  480, 32 },
++        {  800,  600, 16 },
++        {  800,  600, 32 },
++        { 1024,  768, 16 },
++        { 1024,  768, 32 },
++        { 1280, 1024, 16 },
++        { 1280, 1024, 32 },
++        { 1600, 1200, 16 },
++        { 1600, 1200, 32 },
++        { 1920, 1200, 16 },
++        { 1920, 1200, 32 }
++    };
++    const int num_modes = sizeof(classicModes) / sizeof(classicModes[0]);
+     gosASSERT(!resolutionModes && !resolutionModesStr);
+     resolutionModes = new ResModes[num_modes];
+     resolutionModesStr = new char*[num_modes];
+@@ -395,7 +389,7 @@ void OptionsGraphics::init(long xOffset, long yOffset)
+ 
+ 
+ 	for ( int i = 0; i < num_modes; i++ ) {
+-        gos_GetDisplayModeByIndex(displayIndex, i, &resolutionModes[i].xRes, &resolutionModes[i].yRes, &resolutionModes[i].bitDepth);
++        resolutionModes[i] = classicModes[i];
+ 
+         resolutionModesStr[i] = new char[256];
+         S_snprintf(resolutionModesStr[i], 256, "%dx%dx%d", resolutionModes[i].xRes, resolutionModes[i].yRes, resolutionModes[i].bitDepth);
+@@ -680,6 +674,16 @@ void OptionsGraphics::reset(const CPrefs& newPrefs)
+         }
+     }
+ 
++    if(index == -1) {
++        for(int i=0;i<numResolutionModes;++i) {
++            if( resolutionModes[i].xRes == newPrefs.resolutionX && 
++                resolutionModes[i].yRes == newPrefs.resolutionY) {
++                index = i;
++                break;
++            }
++        }
++    }
++
+     resolutionList.SelectItem(index==-1 ? 0 : index);
+ 
+     /*
 diff --git a/code/pilotreviewarea.cpp b/code/pilotreviewarea.cpp
 index af972ec..e48dbde 100644
 --- a/code/pilotreviewarea.cpp
@@ -962,6 +1161,48 @@ index af972ec..e48dbde 100644
  #include"mechicon.h"
  #include"platform_windows.h"
  #include"gamesound.h"
+diff --git a/code/prefs.cpp b/code/prefs.cpp
+index 45e1e5c..2da1c76 100644
+--- a/code/prefs.cpp
++++ b/code/prefs.cpp
+@@ -88,6 +88,28 @@ CPrefs::CPrefs() {
+ #endif
+ }
+ 
++static const int classicResolutionX[] = { 640, 800, 1024, 1280, 1600, 1920 };
++static const int classicResolutionY[] = { 480, 600, 768, 1024, 1200, 1200 };
++
++static void snapToClassicResolution( int& resolutionX, int& resolutionY )
++{
++	const int numClassicResolutions = sizeof(classicResolutionX) / sizeof(classicResolutionX[0]);
++	int best = 0;
++	int bestDist = 0x7fffffff;
++	for ( int i = 0; i < numClassicResolutions; i++ )
++	{
++		int dist = abs( resolutionX - classicResolutionX[i] );
++		if ( dist < bestDist )
++		{
++			bestDist = dist;
++			best = i;
++		}
++	}
++
++	resolutionX = classicResolutionX[best];
++	resolutionY = classicResolutionY[best];
++}
++
+ int CPrefs::load( const char* pFileName ) {
+ 	long result = 0;
+ 
+@@ -188,6 +210,8 @@ int CPrefs::load( const char* pFileName ) {
+ 			if (result != NO_ERR)
+ 				resolutionY = 600;
+ 
++			snapToClassicResolution( resolutionX, resolutionY );
++
+ 			result = prefsFile->readIdBoolean("FullScreen",fullScreen);
+ 			if (result != NO_ERR)
+ 				fullScreen = false;
 diff --git a/code/salvagemecharea.cpp b/code/salvagemecharea.cpp
 index be22f30..05f5596 100644
 --- a/code/salvagemecharea.cpp
