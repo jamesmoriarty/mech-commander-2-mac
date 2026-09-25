@@ -5,12 +5,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCE_DIR="${SCRIPT_DIR}/native/mc2"
-NATIVE_DIR="${NATIVE_DIR:-${SCRIPT_DIR}/build/native}"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SOURCE_DIR="${REPO_DIR}/native/mc2"
+NATIVE_DIR="${NATIVE_DIR:-${REPO_DIR}/build/native}"
 BUILD_DIR="${NATIVE_DIR}/mc2-build"
 DATA_DIR="${NATIVE_DIR}/mc2srcdata"
 DATA_BUILD_DIR="${DATA_DIR}/build_scripts"
-DIST_DIR="${SCRIPT_DIR}/dist"
+DIST_DIR="${REPO_DIR}/dist"
 APP_NAME="MechCommander2.app"
 APP_DIR="${DIST_DIR}/${APP_NAME}"
 CONTENTS_DIR="${APP_DIR}/Contents"
@@ -45,7 +46,7 @@ cp "$BUILD_DIR/mc2" "$ENGINE"
 cp "$BUILD_DIR/out/res/libmc2res_64.dylib" "$LIB_DIR/libmc2res_64.dylib"
 cp -R "$SOURCE_DIR/shaders" "$RES_DIR/shaders"
 cp "$SOURCE_DIR/license.txt" "$RES_DIR/license.txt"
-iconutil -c icns "${SCRIPT_DIR}/native/icon/AppIcon.iconset" -o "$RES_DIR/AppIcon.icns"
+iconutil -c icns "${REPO_DIR}/native/icon/AppIcon.iconset" -o "$RES_DIR/AppIcon.icns"
 
 bundle_dylibs() {
     local binary="$ENGINE"
@@ -355,4 +356,4 @@ fi
 printf '\nNext steps:\n'
 printf '  Game data downloads by default from the alariq/mc2 GitHub release\n'
 printf '  (see Contents/Resources/data-url.txt in the app).\n'
-printf '  To use your own archive instead: MC2_DATA_URL=<url> ./build-dist-macos.sh\n'
+printf '  To use your own archive instead: MC2_DATA_URL=<url> make dist\n'

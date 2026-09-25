@@ -4,9 +4,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCE_DIR="${SCRIPT_DIR}/native/mc2"
-PATCH_FILE="${SCRIPT_DIR}/native/macos.patch"
-NATIVE_DIR="${NATIVE_DIR:-${SCRIPT_DIR}/build/native}"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SOURCE_DIR="${REPO_DIR}/native/mc2"
+PATCH_FILE="${REPO_DIR}/native/macos.patch"
+NATIVE_DIR="${NATIVE_DIR:-${REPO_DIR}/build/native}"
 BUILD_DIR="${NATIVE_DIR}/mc2-build"
 DATA_DIR="${NATIVE_DIR}/mc2srcdata"
 DATA_BUILD_DIR="${DATA_DIR}/build_scripts"

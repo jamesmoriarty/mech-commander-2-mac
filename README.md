@@ -18,8 +18,8 @@ Gameplay video: [docs/screenshots/gameplay.mp4](docs/screenshots/gameplay.mp4)
 
 ```sh
 git submodule update --init
-./build-native-macos.sh
-./run-native-macos.sh
+make native
+make run
 ```
 
 Requires CMake, git, and make (plus Homebrew `sdl2-compat`, `sdl2_mixer`,
@@ -35,7 +35,7 @@ Known defects and their fixes are tracked in
 ## Distributable app
 
 ```sh
-./build-dist-macos.sh
+make dist
 ```
 
 Produces `dist/MechCommander2.app` (plus a shareable zip of the same). All
@@ -55,8 +55,11 @@ download (`SKIP_DATA_ARCHIVE=1` skips it).
   not in the submodule (pinned to the commit the patch applies to)
 - `native/macos.patch` — input, cursor, HiDPI, movie, and resolution fixes
 - `native/icon/` — app icon sources (`AppIcon.iconset`)
-- `build-native-macos.sh` / `run-native-macos.sh` — build and launch
-- `build-dist-macos.sh` — bundle the relocatable `.app` and data archive
+- `Makefile` — convenience targets (`make help`) delegating to `scripts/`
+- `scripts/build-native-macos.sh` / `scripts/run-native-macos.sh` — build and
+  launch
+- `scripts/build-dist-macos.sh` — bundle the relocatable `.app` and data
+  archive
 - `docs/defects/` — tracked bugs and their fixes
   ([index](docs/defects/README.md))
 

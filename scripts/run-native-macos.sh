@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 "${SCRIPT_DIR}/build-native-macos.sh" >/dev/null
-cd "${SCRIPT_DIR}/build/native/mc2srcdata/build_scripts"
+cd "${REPO_DIR}/build/native/mc2srcdata/build_scripts"
 exec ./mc2 "$@"
