@@ -3,8 +3,12 @@ name: Build macOS app
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   app:
@@ -35,3 +39,19 @@ jobs:
           name: MechCommander2-mac
           path: dist/MechCommander2-mac.zip
           if-no-files-found: error
+
+      - name: Publish release (tags only)
+        # Attaches only the engine zip; game data is never included.
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/MechCommander2-mac.zip
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            Native arm64 MechCommander 2 engine port (MechCommander2.app).
+
+            No game data included - the launcher downloads it on first run.
+            Unsigned/ad-hoc: if macOS blocks it, run
+            `xattr -dr com.apple.quarantine MechCommander2.app`.

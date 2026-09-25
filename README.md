@@ -41,6 +41,10 @@ Known defects and their fixes are tracked in
 make dist
 ```
 
+Pushing a `v*` tag runs the same build on GitHub Actions (without the local
+data archive) and publishes `MechCommander2-mac.zip` as a release asset:
+`git tag v0.1.0-mac && git push origin v0.1.0-mac`.
+
 Produces `dist/MechCommander2.app` (plus a shareable zip of the same). All
 Homebrew libraries — including the SDL3 library that Homebrew's SDL2-compat
 shim loads at runtime — are bundled into the app bundle and ad-hoc signed,
