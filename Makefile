@@ -2,7 +2,7 @@
 # Build logic lives in scripts/*.sh (bash, not make).
 
 SCRIPTS := scripts
-BREW_DEPS := cmake sdl2-compat sdl2_mixer sdl2_ttf glew
+BREW_DEPS := cmake sdl2-compat sdl2_mixer sdl2_ttf glew ffmpeg
 
 .PHONY: help deps native run dist dist-no-data clean
 

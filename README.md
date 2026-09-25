@@ -23,9 +23,10 @@ make native
 make run
 ```
 
-Requires CMake, git, and make, plus the Homebrew formulas `sdl2-compat`,
-`sdl2_mixer`, `sdl2_ttf`, and `glew` (`make deps` installs them; the build
-script checks and lists anything missing). The build script clones
+Requires CMake, git, make, and ffmpeg, plus the Homebrew formulas
+`sdl2-compat`, `sdl2_mixer`, `sdl2_ttf`, and `glew` (`make deps` installs
+them; the build script checks and lists anything missing; ffmpeg converts
+the intro movie videos). The build script clones
 [mc2srcdata](https://github.com/alariq/mc2srcdata), applies
 `native/macos.patch`, builds the engine and data tools, and processes the
 runtime data locally — it does not replace or redistribute Microsoft's game

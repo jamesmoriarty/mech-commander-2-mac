@@ -26,7 +26,7 @@ need_command() {
     }
 }
 
-for command in cmake git make; do need_command "$command"; done
+for command in cmake git make ffmpeg; do need_command "$command"; done
 
 missing=()
 need_command brew
