@@ -117,6 +117,13 @@ bundle_dylibs() {
 
 bundle_dylibs
 
+if command -v swiftc >/dev/null 2>&1; then
+    printf 'Building GUI downloader...\n'
+    swiftc -O -o "$BIN_DIR/Mc2Downloader" "${REPO_DIR}/native/downloader/Mc2Downloader.swift"
+else
+    printf 'WARNING: swiftc not found; Finder downloads will show no progress window\n' >&2
+fi
+
 if otool -l "$ENGINE" | grep -q 'path /opt/homebrew'; then
     install_name_tool -delete_rpath /opt/homebrew/lib "$ENGINE" 2>/dev/null
 fi
@@ -244,9 +251,20 @@ if [[ ! -f "$MARKER" ]]; then
     tmp="$DATA_DIR/.mc2-data-tmp"
     rm -rf "$partial" "$tmp"
     printf 'Downloading game data...\n' >&2
-    if ! curl -fL --progress-bar -o "$partial" "$url"; then
+    downloader="$BIN_DIR/Mc2Downloader"
+    rc=0
+    if [[ "$gui" -eq 1 && -x "$downloader" ]]; then
+        "$downloader" --url "$url" --out "$partial" || rc=$?
+    else
+        curl -fL --progress-bar -o "$partial" "$url" || rc=1
+    fi
+    if [[ "$rc" -ne 0 ]]; then
         rm -f "$partial"
-        notify 'ERROR: download failed.'
+        if [[ "$rc" -eq 2 ]]; then
+            notify 'Download cancelled.'
+        else
+            notify 'ERROR: download failed.'
+        fi
         exit 1
     fi
     printf 'Extracting game data...\n' >&2
@@ -304,9 +322,10 @@ MC2_DATA_URL=<url> MC2_DATA_DIR=<dir> open MechCommander2.app
 
 On first run the app asks before downloading the game data (~630 MB) from
 the alariq/mc2 GitHub release (URL in `Contents/Resources/data-url.txt`)
-into `~/Library/Application Support/MechCommander2/game-data/`. To run
-offline, pre-populate that directory (it must contain `data/`, `assets/`
-and the `.fst` files).
+into `~/Library/Application Support/MechCommander2/game-data/`, showing a
+download progress window (cancel stops the download). To run offline,
+pre-populate that directory (it must contain `data/`, `assets/` and the
+`.fst` files).
 
 If macOS blocks the app after download:
 
@@ -341,6 +360,7 @@ fi
 for file in "$ENGINE" "$LIB_DIR"/*; do
     codesign --force --sign - "$file" >/dev/null 2>&1
 done
+[[ -f "$BIN_DIR/Mc2Downloader" ]] && codesign --force --sign - "$BIN_DIR/Mc2Downloader" >/dev/null 2>&1
 codesign --force --sign - "$APP_DIR" >/dev/null 2>&1
 
 rm -f "${DIST_DIR}/${ZIP_NAME}"
