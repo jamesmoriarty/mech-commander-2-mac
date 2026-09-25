@@ -37,11 +37,11 @@ jobs:
           security create-keychain -p ci "$RUNNER_TEMP/build.keychain"
           security default-keychain -s "$RUNNER_TEMP/build.keychain"
           security unlock-keychain -p ci "$RUNNER_TEMP/build.keychain"
-          security import dev_id.p12 -k "$RUNNER_TEMP/build.keychain" \
+          security import "$RUNNER_TEMP/dev_id.p12" -k "$RUNNER_TEMP/build.keychain" \
             -P "$P12_PWD" -T /usr/bin/codesign -A
           security set-key-partition-list -S apple-tool:,apple: \
             -s -k ci "$RUNNER_TEMP/build.keychain"
-          rm dev_id.p12
+          rm "$RUNNER_TEMP/dev_id.p12"
           security find-identity -v -p codesigning | grep 'Developer ID Application'
 
       - name: Build engine and process game data
