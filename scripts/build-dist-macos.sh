@@ -19,7 +19,6 @@ BIN_DIR="${CONTENTS_DIR}/MacOS"
 LIB_DIR="${CONTENTS_DIR}/lib"
 RES_DIR="${CONTENTS_DIR}/Resources"
 ENGINE="${BIN_DIR}/mc2"
-LAUNCHER="${RES_DIR}/MechCommander2.sh"
 ZIP_NAME="MechCommander2-mac.zip"
 STAGE_DIR="${DIST_DIR}/data-stage"
 DATA_ARCHIVE="${DIST_DIR}/mc2-data.tar.gz"
@@ -179,126 +178,6 @@ cat > "$CONTENTS_DIR/Info.plist" <<'EOF'
 </plist>
 EOF
 
-cat > "$LAUNCHER" <<'EOF'
-#!/bin/bash
-# MechCommander 2 launcher: fetches game data on first run, then starts the game.
-set -euo pipefail
-
-RES_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONTENTS_DIR="$(dirname "$RES_DIR")"
-BIN_DIR="$CONTENTS_DIR/MacOS"
-ENGINE="$BIN_DIR/mc2"
-
-DATA_DIR="${MC2_DATA_DIR:-$HOME/Library/Application Support/MechCommander2/game-data}"
-MARKER="$DATA_DIR/.mc2-data-ready"
-
-assume_yes=0
-if [[ "${1:-}" == "--yes" ]]; then
-    assume_yes=1
-    shift
-fi
-
-gui=0
-[[ -t 0 ]] || gui=1
-
-notify() {
-    printf '%s\n' "$1" >&2
-    if [[ "$gui" -eq 1 ]]; then
-        osascript - "$1" >/dev/null 2>&1 <<'OSA' || true
-on run argv
-    display alert "MechCommander 2" message (item 1 of argv)
-end run
-OSA
-    fi
-}
-
-confirm_download() {
-    if [[ "$assume_yes" -eq 1 ]]; then
-        return 0
-    fi
-    if [[ "$gui" -eq 0 ]]; then
-        printf 'Game data (~630 MB) will be downloaded from:\n  %s\n' "$1" >&2
-        read -r -p 'Download now? [y/N] ' reply || reply=n
-        [[ "$reply" == [yY]* ]]
-    else
-        osascript - "$1" 2>/dev/null <<'OSA' | grep -q '^true$'
-on run argv
-    display alert "MechCommander 2" message ("Game data (~630 MB) will be downloaded from:" & return & (item 1 of argv)) buttons {"Cancel", "Download"} default button "Download"
-    return button returned of result is "Download"
-end run
-OSA
-    fi
-}
-
-if [[ ! -f "$MARKER" ]]; then
-    url="${MC2_DATA_URL:-}"
-    if [[ -z "$url" && -f "$RES_DIR/data-url.txt" ]]; then
-        url="$(grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$RES_DIR/data-url.txt" | head -n 1 || true)"
-    fi
-    if [[ -z "$url" ]]; then
-        notify "Game data is not installed and no download URL is configured. Host the data archive yourself, then set its URL in Contents/Resources/data-url.txt inside MechCommander2.app, or launch with MC2_DATA_URL=<url>."
-        exit 1
-    fi
-    if ! confirm_download "$url"; then
-        notify 'Aborted.'
-        exit 1
-    fi
-    mkdir -p "$DATA_DIR"
-    partial="$DATA_DIR/.mc2-data.partial"
-    tmp="$DATA_DIR/.mc2-data-tmp"
-    rm -rf "$partial" "$tmp"
-    printf 'Downloading game data...\n' >&2
-    downloader="$BIN_DIR/MechCommander2"
-    rc=0
-    if [[ "$gui" -eq 1 && -x "$downloader" ]]; then
-        "$downloader" --download --url "$url" --out "$partial" || rc=$?
-    else
-        curl -fL --progress-bar -o "$partial" "$url" || rc=1
-    fi
-    if [[ "$rc" -ne 0 ]]; then
-        rm -f "$partial"
-        if [[ "$rc" -eq 2 ]]; then
-            notify 'Download cancelled.'
-        else
-            notify 'ERROR: download failed.'
-        fi
-        exit 1
-    fi
-    printf 'Extracting game data...\n' >&2
-    ok=0
-    if [[ "$url" == *.zip ]]; then
-        # GitHub release archives (e.g. alariq/mc2) are zips with a single top
-        # directory plus Windows binaries we must not take.
-        if unzip -qq "$partial" -x '*.exe' '*.dll' '*.pdb' '*/shaders/*' '*/testtxm.tga' '*/options.cfg' '*/options.cfg.old' -d "$tmp"; then
-            top="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-            rsync -a "${top:-$tmp}/" "$DATA_DIR/"
-            ok=1
-        fi
-    else
-        tar -xzf "$partial" -C "$DATA_DIR" && ok=1
-    fi
-    rm -f "$partial"
-    rm -rf "$tmp"
-    if [[ "$ok" -ne 1 ]]; then
-        rm -rf "$DATA_DIR"
-        notify 'ERROR: extraction failed; the download was removed.'
-        exit 1
-    fi
-    touch "$MARKER"
-    printf 'Game data installed.\n' >&2
-fi
-
-# The app-provided shaders/resource library take precedence over anything
-# that came in the archive.
-rm -rf "$DATA_DIR/shaders"
-rm -f "$DATA_DIR/libmc2res_64.so"
-ln -sfn "$RES_DIR/shaders" "$DATA_DIR/shaders"
-ln -sfn "$CONTENTS_DIR/lib/libmc2res_64.dylib" "$DATA_DIR/libmc2res_64.so"
-
-cd "$DATA_DIR"
-exec "$ENGINE" "$@"
-EOF
-chmod +x "$LAUNCHER"
 
 cat > "$RES_DIR/README.md" <<'EOF'
 # MechCommander 2 for macOS (Apple Silicon)
