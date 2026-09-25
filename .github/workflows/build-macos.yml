@@ -1,0 +1,37 @@
+name: Build macOS app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  app:
+    runs-on: macos-latest # arm64 (Apple Silicon) runner
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: make deps
+
+      - name: Build engine and process game data
+        run: make native
+
+      - name: Build app bundle and zip
+        # SKIP_DATA_ARCHIVE path: mc2-data.tar.gz holds Microsoft game assets
+        # and must never be uploaded to artifacts or releases.
+        run: make dist-no-data
+
+      - name: Verify bundle signature
+        run: codesign --verify --strict dist/MechCommander2.app
+
+      - name: Upload engine package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MechCommander2-mac
+          path: dist/MechCommander2-mac.zip
+          if-no-files-found: error
